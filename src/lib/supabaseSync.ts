@@ -55,7 +55,7 @@ export function getSupabaseClient(config: CloudConfig): SupabaseClient | null {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      flowType: 'pkce',
+      detectSessionInUrl: true,
     },
   });
   return cachedClient;

@@ -565,17 +565,38 @@ export function CatyBoardApp() {
 
     const client = getSupabaseClient(cloudConfig);
     if (client) {
+      const redirectOrigin =
+        typeof window !== 'undefined' ? window.location.origin : undefined;
       const res = await client.auth.signUp({
         email: payload.email,
         password: payload.password,
         options: {
+          emailRedirectTo: redirectOrigin,
           data: {
             board_title: payload.boardTitle || DEFAULT_BOARD_TITLE,
             nickname: payload.nickname || DEFAULT_OWNER_NICKNAME,
           },
         },
       });
-      if (res.error) throw res.error;
+      if (res.error) {
+        const rawMsg = res.error.message || '';
+        if (/rate limit/i.test(rawMsg)) {
+          throw new Error(
+            'Máy chủ gửi mail miễn phí của Supabase đang chạm giới hạn gửi/giờ. Vui lòng kiểm tra hộp thư (cả mục Thư rác/Spam) hoặc tắt "Confirm email" trong Supabase Authentication → Providers → Email để đăng ký vào ngay.'
+          );
+        }
+        throw res.error;
+      }
+
+      if (
+        res.data.user &&
+        Array.isArray(res.data.user.identities) &&
+        res.data.user.identities.length === 0
+      ) {
+        throw new Error(
+          'Email này đã được đăng ký trước đó. Hãy chuyển sang tab Đăng nhập nhé!'
+        );
+      }
 
       // Always initialize a brand-new blank board for this newly registered email
       const freshBoard = createFreshAccountStore({
@@ -624,29 +645,50 @@ export function CatyBoardApp() {
     const client = getSupabaseClient(cloudConfig);
     if (client) {
       let verifiedUser: User | null = null;
-      const signupVerify = await client.auth.verifyOtp({
-        email,
-        token: otpCode,
-        type: 'signup',
-      });
 
-      if (!signupVerify.error && signupVerify.data.user) {
-        verifiedUser = signupVerify.data.user;
-      } else {
-        const emailVerify = await client.auth.verifyOtp({
-          email,
-          token: otpCode,
-          type: 'email',
-        });
-        if (!emailVerify.error && emailVerify.data.user) {
-          verifiedUser = emailVerify.data.user;
+      if (otpCode === '__LINK_CONFIRMED__') {
+        const current = await client.auth.getUser();
+        if (current.data.user) {
+          verifiedUser = current.data.user;
         } else if (passwordFallback) {
-          const loginFallback = await client.auth.signInWithPassword({
+          const loginAfterLink = await client.auth.signInWithPassword({
             email,
             password: passwordFallback,
           });
-          if (!loginFallback.error && loginFallback.data.user) {
-            verifiedUser = loginFallback.data.user;
+          if (!loginAfterLink.error && loginAfterLink.data.user) {
+            verifiedUser = loginAfterLink.data.user;
+          }
+        }
+        if (!verifiedUser) {
+          throw new Error(
+            'Chưa nhận được xác nhận từ Gmail. Hãy mở thư từ Supabase (kiểm tra cả mục Thư rác / Spam), bấm vào link "Confirm your mail" rồi thử lại nhé!'
+          );
+        }
+      } else {
+        const signupVerify = await client.auth.verifyOtp({
+          email,
+          token: otpCode,
+          type: 'signup',
+        });
+
+        if (!signupVerify.error && signupVerify.data.user) {
+          verifiedUser = signupVerify.data.user;
+        } else {
+          const emailVerify = await client.auth.verifyOtp({
+            email,
+            token: otpCode,
+            type: 'email',
+          });
+          if (!emailVerify.error && emailVerify.data.user) {
+            verifiedUser = emailVerify.data.user;
+          } else if (passwordFallback) {
+            const loginFallback = await client.auth.signInWithPassword({
+              email,
+              password: passwordFallback,
+            });
+            if (!loginFallback.error && loginFallback.data.user) {
+              verifiedUser = loginFallback.data.user;
+            }
           }
         }
       }

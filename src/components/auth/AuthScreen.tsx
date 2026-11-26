@@ -148,7 +148,7 @@ export function AuthScreen({
     setErrorMsg('');
     const cleanCode = otpCode.trim();
     if (cleanCode.length < 4) {
-      setErrorMsg('Vui lòng nhập mã xác thực bạn nhận được trong Gmail.');
+      setErrorMsg('Vui lòng nhập mã xác thực 6 chữ số bạn nhận được trong Gmail.');
       return;
     }
 
@@ -160,6 +160,22 @@ export function AuthScreen({
         err instanceof Error
           ? err.message
           : 'Mã xác thực chưa đúng hoặc đã hết hạn.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLinkConfirmedClick = async () => {
+    setErrorMsg('');
+    setBusy(true);
+    try {
+      await onVerifyOtp(email.trim().toLowerCase(), '__LINK_CONFIRMED__', password);
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : 'Chưa xác nhận được từ Gmail. Hãy kiểm tra hộp thư (cả mục Thư rác/Spam) nhé!'
       );
     } finally {
       setBusy(false);
@@ -375,7 +391,7 @@ export function AuthScreen({
                 <div className="font-extrabold">📩 Kiểm tra hộp thư Gmail của bạn</div>
                 <p className="mt-1 text-[11px] leading-relaxed">
                   {infoMsg ||
-                    `Chúng mình vừa gửi mã xác thực tới ${email}. Nhập mã vào ô dưới đây để mở trang Board mới tinh của bạn.`}
+                    `Chúng mình vừa gửi thư xác thực tới ${email}. Hãy kiểm tra cả Hộp thư đến và mục Thư rác (Spam) nhé!`}
                 </p>
                 {demoOtpHint && (
                   <div className="mt-2 rounded-xl bg-white px-2.5 py-1.5 font-mono text-xs font-extrabold text-[#3d7c57]">
@@ -385,7 +401,7 @@ export function AuthScreen({
               </div>
 
               <label className="block text-xs">
-                <span className="font-bold">Mã xác thực từ Gmail</span>
+                <span className="font-bold">Cách 1: Nhập mã xác thực 6 chữ số từ Gmail</span>
                 <div className="relative mt-1">
                   <KeyRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 opacity-50" />
                   <input
@@ -415,6 +431,16 @@ export function AuthScreen({
                 {busy ? 'Đang xác nhận & tạo Board...' : 'Xác nhận mã & Tạo Board mới'}
               </button>
 
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleLinkConfirmedClick()}
+                className="flex w-full items-center justify-center gap-1.5 rounded-2xl border-2 border-[#3a75a8] bg-[#eef6fc] py-2 text-xs font-extrabold text-[#1e4b70] transition hover:bg-[#dfeffb] disabled:opacity-60"
+              >
+                <UserCheck className="h-4 w-4" />
+                Cách 2: Tôi đã bấm nút &quot;Confirm your mail&quot; trong Gmail → Vào Bảng
+              </button>
+
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]">
                 <button
                   type="button"
@@ -422,7 +448,7 @@ export function AuthScreen({
                   onClick={() => void handleResend()}
                   className="inline-flex items-center gap-1 font-bold text-[#3a75a8] hover:underline"
                 >
-                  <RefreshCw className="h-3 w-3" /> Gửi lại mã
+                  <RefreshCw className="h-3 w-3" /> Gửi lại thư xác nhận
                 </button>
 
                 <button

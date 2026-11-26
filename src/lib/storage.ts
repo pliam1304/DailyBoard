@@ -281,13 +281,21 @@ export function ensureDayEntry(
   );
 }
 
+const DEFAULT_PUBLIC_SUPABASE_URL = 'https://uzrhwosbjcmuybttdxdh.supabase.co';
+const DEFAULT_PUBLIC_SUPABASE_PUBLISHABLE_KEY =
+  'sb_publishable_I5ERlQtXKiNvCd7beRjT9Q_bpoSN2K9';
+
 /**
  * Infrastructure configuration comes from environment variables (.env.local / Vercel),
- * with an optional developer-only override when logged in as the Dev Admin account.
+ * falling back to the project's public Supabase publishable endpoint so Vercel builds
+ * always connect even if env vars were not manually pasted before the first deploy.
  */
 export function loadCloudConfig(): CloudConfig {
-  const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const envAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const envUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_PUBLIC_SUPABASE_URL;
+  const envAnon =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    DEFAULT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const envSpotify = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID || '';
 
   if (typeof window !== 'undefined') {
