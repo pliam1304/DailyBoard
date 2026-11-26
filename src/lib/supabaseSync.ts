@@ -30,9 +30,31 @@ import type {
   MemberRole,
   MusicTrack,
   NoteItem,
+  PolaroidFrameColor,
   ReminderItem,
   VoiceMemo,
+  WashiStyle,
 } from '@/types/catyboard';
+
+function encodeWashiAndFrame(
+  washiStyle: WashiStyle,
+  frameColor?: PolaroidFrameColor
+): string {
+  if (!frameColor || frameColor === 'classic-white') return washiStyle;
+  return `${washiStyle}|${frameColor}`;
+}
+
+function decodeWashiAndFrame(raw?: string | null): {
+  washiStyle: WashiStyle;
+  frameColor?: PolaroidFrameColor;
+} {
+  if (!raw) return { washiStyle: 'mint-gingham' };
+  const [washi, frame] = String(raw).split('|');
+  return {
+    washiStyle: (washi || 'mint-gingham') as WashiStyle,
+    frameColor: frame ? (frame as PolaroidFrameColor) : undefined,
+  };
+}
 
 let cachedKey = '';
 let cachedClient: SupabaseClient | null = null;
@@ -309,7 +331,7 @@ async function upsertSinglePhoto(
     entry_date: photo.entryDate,
     storage_path: storagePath,
     caption: sanitizeText(photo.caption, 180),
-    washi_style: photo.washiStyle,
+    washi_style: encodeWashiAndFrame(photo.washiStyle, photo.frameColor),
     rotation_deg: photo.rotationDeg,
     is_cover: photo.isCover,
     reactions: (photo.reactions ?? []).slice(0, 10),
@@ -845,14 +867,16 @@ export async function pullStoreFromSupabase(
 
     if (!resolvedUrl) continue;
 
+    const parsedFrame = decodeWashiAndFrame(row.washi_style);
     cloudPhotos.push({
       id: row.id,
       entryDate: row.entry_date,
       dataUrl: resolvedUrl,
       storagePath: row.storage_path,
       syncState: 'synced',
+      frameColor: parsedFrame.frameColor ?? localMatch?.frameColor,
       caption: row.caption,
-      washiStyle: row.washi_style,
+      washiStyle: parsedFrame.washiStyle,
       rotationDeg: Number(row.rotation_deg ?? -2),
       isCover: Boolean(row.is_cover),
       authorRole: (row.author_role as MemberRole) || 'owner',
@@ -1176,14 +1200,18 @@ export function applyRealtimeDelta(
       if (!directUrl) {
         return { next: current, needsFullPull: true };
       }
+      const parsedFrame = decodeWashiAndFrame(
+        typeof newRow.washi_style === 'string' ? newRow.washi_style : undefined
+      );
       const updatedPhoto: DayPhoto = {
         id: newRow.id,
         entryDate: String(newRow.entry_date || ''),
         dataUrl: directUrl,
         storagePath: sp,
         syncState: 'synced',
+        frameColor: parsedFrame.frameColor ?? existingPhoto?.frameColor,
         caption: String(newRow.caption || ''),
-        washiStyle: (newRow.washi_style as DayPhoto['washiStyle']) || 'mint-gingham',
+        washiStyle: parsedFrame.washiStyle,
         rotationDeg: Number(newRow.rotation_deg ?? -2),
         isCover: Boolean(newRow.is_cover),
         authorRole: (newRow.author_role as MemberRole) || 'owner',
@@ -1216,6 +1244,11 @@ export function subscribeBoardRealtime(
     onDataChanged: (delta?: RealtimeDeltaEvent) => void;
     onPresenceChange: (online: OnlineMemberPresence[]) => void;
     onHeartPing: (fromNickname: string) => void;
+    onDeskTreat?: (treat: {
+      fromNickname: string;
+      emoji: string;
+      label: string;
+    }) => void;
   }
 ): RealtimeChannel {
   const channel = client.channel(`catyboard-room-${boardId}`, {
@@ -1266,6 +1299,20 @@ export function subscribeBoardRealtime(
     .on('broadcast', { event: 'heart_ping' }, ({ payload }) => {
       const from = (payload as { fromNickname?: string })?.fromNickname;
       if (from) handlers.onHeartPing(from);
+    })
+    .on('broadcast', { event: 'desk_treat' }, ({ payload }) => {
+      const p = payload as {
+        fromNickname?: string;
+        emoji?: string;
+        label?: string;
+      };
+      if (p?.fromNickname && p?.emoji && handlers.onDeskTreat) {
+        handlers.onDeskTreat({
+          fromNickname: p.fromNickname,
+          emoji: p.emoji,
+          label: p.label || 'món quà nhỏ',
+        });
+      }
     })
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {

@@ -139,6 +139,8 @@ class LofiAmbientEngine {
     }
   }
 
+  private lastClinkMs = 0;
+
   public playPurrChime() {
     if (typeof window === 'undefined') return;
     try {
@@ -158,6 +160,136 @@ class LofiAmbientEngine {
       osc.stop(now + 0.36);
     } catch {
       // Ignore autoplay restrictions before first interaction
+    }
+  }
+
+  public triggerHaptic(pattern: number | number[] = 8) {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      try {
+        navigator.vibrate(pattern);
+      } catch {
+        // Ignore if unsupported
+      }
+    }
+  }
+
+  public playGlassClink(intensity = 0.5) {
+    if (typeof window === 'undefined') return;
+    const nowMs = Date.now();
+    if (nowMs - this.lastClinkMs < 65) return;
+    this.lastClinkMs = nowMs;
+    if (intensity > 0.55) {
+      this.triggerHaptic(6);
+    }
+
+    try {
+      this.ensureInit();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const baseFreq = 1650 + Math.random() * 650;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(baseFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.12, now + 0.045);
+      const vol = Math.min(0.045, Math.max(0.008, intensity * 0.04));
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.0005, now + 0.09);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.095);
+    } catch {
+      // Ignore audio errors
+    }
+  }
+
+  public playCorkPop() {
+    if (typeof window === 'undefined') return;
+    this.triggerHaptic([12, 18, 10]);
+    try {
+      this.ensureInit();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(480, now + 0.055);
+      gain.gain.setValueAtTime(0.11, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    } catch {
+      // Ignore audio errors
+    }
+  }
+
+  public playPaperUnfurl() {
+    if (typeof window === 'undefined') return;
+    try {
+      this.ensureInit();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      const len = Math.floor(ctx.sampleRate * 0.16);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i += 1) {
+        const env = Math.sin((i / len) * Math.PI);
+        data[i] = (Math.random() * 2 - 1) * env * 0.05;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 1850;
+      filter.Q.value = 1.1;
+      src.connect(filter);
+      filter.connect(ctx.destination);
+      src.start(now);
+    } catch {
+      // Ignore audio errors
+    }
+  }
+
+  public playCapsulePop() {
+    if (typeof window === 'undefined') return;
+    this.triggerHaptic([14, 24, 16]);
+    try {
+      this.ensureInit();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+
+      // Crisp cork/shell pop
+      const popOsc = this.ctx.createOscillator();
+      const popGain = this.ctx.createGain();
+      popOsc.type = 'triangle';
+      popOsc.frequency.setValueAtTime(240, now);
+      popOsc.frequency.exponentialRampToValueAtTime(620, now + 0.06);
+      popGain.gain.setValueAtTime(0.08, now);
+      popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+      popOsc.connect(popGain);
+      popGain.connect(this.ctx.destination);
+      popOsc.start(now);
+      popOsc.stop(now + 0.12);
+
+      // Gentle warm chime after pop
+      const chimeOsc = this.ctx.createOscillator();
+      const chimeGain = this.ctx.createGain();
+      chimeOsc.type = 'sine';
+      chimeOsc.frequency.setValueAtTime(783.99, now + 0.07);
+      chimeOsc.frequency.exponentialRampToValueAtTime(1046.5, now + 0.22);
+      chimeGain.gain.setValueAtTime(0.05, now + 0.07);
+      chimeGain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+      chimeOsc.connect(chimeGain);
+      chimeGain.connect(this.ctx.destination);
+      chimeOsc.start(now + 0.07);
+      chimeOsc.stop(now + 0.44);
+    } catch {
+      // Ignore audio errors
     }
   }
 }

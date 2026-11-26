@@ -6,22 +6,27 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Cloud,
   Disc3,
+  EyeOff,
   Flame,
   Heart,
   History,
   LayoutGrid,
+  Lock,
   Moon,
   MoonStar,
   Music,
   NotebookPen,
   Search,
   Settings,
+  Shield,
   SkipForward,
   Sparkles,
   Square,
   Sun,
+  Unlock,
   UserPlus,
   Users,
   X,
@@ -56,9 +61,12 @@ import {
   revertToSoloBoard,
 } from '@/lib/sharing';
 import {
+  checkRateLimit,
   DEV_ADMIN_PASSWORD_HASH,
   hashJournalPin,
   isDevAdminEmail,
+  recordRateLimitFailure,
+  resetRateLimit,
   verifyJournalPin,
 } from '@/lib/security';
 import {
@@ -103,6 +111,7 @@ import { NotesAndLetters } from '@/components/board/NotesAndLetters';
 import { VoiceMemoCard } from '@/components/board/VoiceMemoCard';
 import { RemindersPanel } from '@/components/board/RemindersPanel';
 import { FinancePanel } from '@/components/board/FinancePanel';
+import { MiniCapsuleJarCard } from '@/components/capsule/MiniCapsuleJarCard';
 
 const SearchCommandModal = dynamic(
   () =>
@@ -144,6 +153,18 @@ const SharedBoardModal = dynamic(
     import('@/components/sync/SharedBoardModal').then(
       (m) => m.SharedBoardModal
     ),
+  { ssr: false }
+);
+const CapsuleJarModal = dynamic(
+  () =>
+    import('@/components/capsule/CapsuleJarModal').then(
+      (m) => m.CapsuleJarModal
+    ),
+  { ssr: false }
+);
+const CozyDeskModal = dynamic(
+  () =>
+    import('@/components/desk/CozyDeskModal').then((m) => m.CozyDeskModal),
   { ssr: false }
 );
 import {
@@ -208,6 +229,17 @@ export function CatyBoardApp() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [capsuleJarOpen, setCapsuleJarOpen] = useState(false);
+  const [capsuleJarMode, setCapsuleJarMode] = useState<'jar' | 'compose'>('jar');
+  const [cozyDeskOpen, setCozyDeskOpen] = useState(false);
+  const [privacyShieldOn, setPrivacyShieldOn] = useState(false);
+  const [shieldPinInput, setShieldPinInput] = useState('');
+  const [shieldPinError, setShieldPinError] = useState('');
+  const [deskTreat, setDeskTreat] = useState<{
+    emoji: string;
+    label: string;
+    fromNickname?: string;
+  } | null>(null);
 
   const [syncStatus, setSyncStatus] = useState<string>('Đã đồng bộ ✓');
   const [incomingInvites, setIncomingInvites] = useState<BoardInvitation[]>([]);
@@ -401,12 +433,19 @@ export function CatyBoardApp() {
     };
   }, [cloudConfig, hydrateCloudUserBoard, applyLoadedStore]);
 
-  // Global Cmd+K / Ctrl+K shortcut for instant search
+  // Global Cmd+K / Ctrl+K shortcut for instant search & Cmd+Shift+L for Privacy Shield
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setSearchOpen((v) => !v);
+      } else if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === 'l'
+      ) {
+        e.preventDefault();
+        setPrivacyShieldOn(true);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -581,6 +620,13 @@ export function CatyBoardApp() {
           setHeartToast(msg);
           sendLocalNotification('💌 Bảng Ghim Lofi', msg);
           setTimeout(() => setHeartToast(null), 3500);
+        },
+        onDeskTreat: (treat) => {
+          ambientEngine.playPurrChime();
+          setDeskTreat(treat);
+          const msg = `${treat.emoji} ${treat.fromNickname} vừa đặt ${treat.label.toLowerCase()} lên bệ cửa sổ!`;
+          setHeartToast(msg);
+          setTimeout(() => setHeartToast(null), 3800);
         },
       }
     );
@@ -1287,6 +1333,54 @@ export function CatyBoardApp() {
     setTimeout(() => setHeartToast(null), 2600);
   };
 
+  const handlePlaceDeskTreat = (treat: { emoji: string; label: string }) => {
+    ambientEngine.playPurrChime();
+    setDeskTreat({ ...treat, fromNickname: myNickname });
+    if (realtimeChannelRef.current && isDuo) {
+      void realtimeChannelRef.current.send({
+        type: 'broadcast',
+        event: 'desk_treat',
+        payload: {
+          fromNickname: myNickname,
+          emoji: treat.emoji,
+          label: treat.label,
+        },
+      });
+      setHeartToast(
+        `${treat.emoji} Đã đặt ${treat.label.toLowerCase()} lên cửa sổ chung!`
+      );
+      setTimeout(() => setHeartToast(null), 2600);
+    }
+  };
+
+  const handleUnlockPrivacyShield = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!store.profile.journalPin) {
+      setPrivacyShieldOn(false);
+      setShieldPinError('');
+      return;
+    }
+    const rate = checkRateLimit('journal_pin');
+    if (!rate.allowed) {
+      setShieldPinError(`Thử sai nhiều lần — chờ ${rate.retryAfterSec}s nhé!`);
+      return;
+    }
+    const ok = await verifyJournalPin(shieldPinInput, store.profile.journalPin);
+    if (ok) {
+      resetRateLimit('journal_pin');
+      setPrivacyShieldOn(false);
+      setShieldPinInput('');
+      setShieldPinError('');
+    } else {
+      const lim = recordRateLimitFailure('journal_pin');
+      setShieldPinError(
+        lim.locked
+          ? `Sai PIN — tạm khóa ${lim.retryAfterSec}s!`
+          : 'Mã PIN chưa chính xác!'
+      );
+    }
+  };
+
   const handleInviteByEmail = async (
     email: string,
     ownerNickname: string,
@@ -1566,6 +1660,36 @@ export function CatyBoardApp() {
 
               <button
                 type="button"
+                onClick={() => {
+                  setShieldPinInput('');
+                  setShieldPinError('');
+                  setPrivacyShieldOn(true);
+                }}
+                title="Che màn hình riêng tư (Cmd + Shift + L)"
+                className={`inline-flex items-center rounded-2xl border p-2 text-xs font-bold shadow-xs transition ${
+                  isNight
+                    ? 'border-[#614835] bg-[#2c2119] text-[#f4e8d6] hover:bg-[#3a2b20]'
+                    : 'border-[#c69d70] bg-[#fbf5e9] text-[#382619] hover:bg-[#f2e6d3]'
+                }`}
+              >
+                <EyeOff className="h-4 w-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCozyDeskOpen(true)}
+                title="Chế độ Đồng hồ bàn học Lofi toàn màn hình"
+                className={`inline-flex items-center rounded-2xl border p-2 text-xs font-bold shadow-xs transition ${
+                  isNight
+                    ? 'border-[#614835] bg-[#2c2119] text-[#f4e8d6] hover:bg-[#3a2b20]'
+                    : 'border-[#c69d70] bg-[#fbf5e9] text-[#382619] hover:bg-[#f2e6d3]'
+                }`}
+              >
+                <Clock className="h-4 w-4" />
+              </button>
+
+              <button
+                type="button"
                 onClick={toggleTheme}
                 title="Đổi giao diện Sáng / Đêm"
                 className={`inline-flex items-center rounded-2xl border p-2 text-xs font-extrabold shadow-xs transition ${
@@ -1641,6 +1765,8 @@ export function CatyBoardApp() {
                   sharing={store.sharing}
                   partnerOnline={partnerOnline}
                   onSendHeartPing={isDuo ? handleSendHeartPing : undefined}
+                  deskTreat={deskTreat}
+                  onPlaceDeskTreat={handlePlaceDeskTreat}
                   onChangeMood={(mood: CatMood) =>
                     updateDayEntry({ mood, checkedIn: true })
                   }
@@ -1759,6 +1885,8 @@ export function CatyBoardApp() {
                     sharing={store.sharing}
                     partnerOnline={partnerOnline}
                     onSendHeartPing={isDuo ? handleSendHeartPing : undefined}
+                    deskTreat={deskTreat}
+                    onPlaceDeskTreat={handlePlaceDeskTreat}
                     onChangeMood={(mood: CatMood) =>
                       updateDayEntry({ mood, checkedIn: true })
                     }
@@ -1793,6 +1921,16 @@ export function CatyBoardApp() {
                     onOpenFinanceTab={() => {
                       setPlannerSection('finance');
                       setActiveTab('planner');
+                    }}
+                  />
+
+                  {/* Interactive Soul Pill Jar Card */}
+                  <MiniCapsuleJarCard
+                    notes={store.notes}
+                    theme={theme}
+                    onOpenJar={(mode) => {
+                      setCapsuleJarMode(mode);
+                      setCapsuleJarOpen(true);
                     }}
                   />
 
@@ -1926,6 +2064,10 @@ export function CatyBoardApp() {
                         onAddNote={handleAddNote}
                         onUpdateNote={handleUpdateNote}
                         onDeleteNote={handleDeleteNote}
+                        onOpenCapsuleJar={() => {
+                          setCapsuleJarMode('jar');
+                          setCapsuleJarOpen(true);
+                        }}
                       />
                     </div>
                   )}
@@ -2245,16 +2387,101 @@ export function CatyBoardApp() {
             saveDevCloudConfig(activeAccountEmail, cfg);
           }}
           onResetFreshBoard={() => {
-            if (!isDevAdminEmail(activeAccountEmail)) return;
             updateStore((prev) => createEmptyStore(prev.profile, prev.sharing));
           }}
           onImportStore={(imported) => {
-            if (!isDevAdminEmail(activeAccountEmail)) return;
             applyLoadedStore(imported, activeAccountEmail);
           }}
           onSignOut={handleSignOut}
           onSyncNow={handleSyncNow}
         />
+      )}
+
+      {/* Interactive 2D Physics Capsule / Pill Jar Modal */}
+      {capsuleJarOpen && (
+        <CapsuleJarModal
+          isOpen={capsuleJarOpen}
+          initialMode={capsuleJarMode}
+          entryDate={selectedDate}
+          notes={store.notes}
+          sharing={store.sharing}
+          journalPin={store.profile.journalPin}
+          theme={theme}
+          onClose={() => setCapsuleJarOpen(false)}
+          onAddNote={handleAddNote}
+          onUpdateNote={handleUpdateNote}
+          onDeleteNote={handleDeleteNote}
+        />
+      )}
+
+      {/* Full-Screen Cozy Desk / Standby Clock Mode */}
+      {cozyDeskOpen && (
+        <CozyDeskModal
+          isOpen={cozyDeskOpen}
+          boardTitle={store.profile.boardTitle || DEFAULT_BOARD_TITLE}
+          catName={store.profile.catName}
+          streakCount={streakCount}
+          activeTrack={activeTrack}
+          deskTreat={deskTreat}
+          onStepNextTrack={handleStepMiniPlayerNext}
+          onStopTrack={() => handleSelectTrack(null)}
+          onClose={() => setCozyDeskOpen(false)}
+        />
+      )}
+
+      {/* 1-Tap Public Privacy Shield Overlay (hides notes/photos/finance in public while music keeps playing!) */}
+      {privacyShieldOn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1c1510]/85 p-4 backdrop-blur-xl">
+          <div className="w-full max-w-sm space-y-3.5 rounded-3xl border-2 border-[#c89d6d] bg-[#faf3e3] p-6 text-center text-[#382619] shadow-2xl">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#3d7c57] text-white shadow-sm">
+              <Shield className="h-6 w-6" />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold">
+                Đang che màn hình riêng tư
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-[#6b5340]">
+                Ảnh kỷ niệm, tâm thư & chi tiêu đang được giấu kín. Nhạc Lofi của bạn vẫn đang phát bình thường.
+              </p>
+            </div>
+
+            {store.profile.journalPin ? (
+              <form
+                onSubmit={(e) => void handleUnlockPrivacyShield(e)}
+                className="space-y-2"
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    value={shieldPinInput}
+                    onChange={(e) => setShieldPinInput(e.target.value)}
+                    placeholder="Nhập mã PIN để mở..."
+                    className="flex-1 rounded-xl border border-[#cbb08c] bg-white px-3 py-2 text-xs text-[#382619] outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1 rounded-xl bg-[#3d7c57] px-4 py-2 text-xs font-extrabold text-white shadow-xs hover:bg-[#316647]"
+                  >
+                    <Unlock className="h-3.5 w-3.5" /> Mở
+                  </button>
+                </div>
+                {shieldPinError && (
+                  <p className="text-xs font-bold text-[#c54650]">
+                    {shieldPinError}
+                  </p>
+                )}
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleUnlockPrivacyShield()}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#3d7c57] py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-[#316647]"
+              >
+                <Lock className="h-3.5 w-3.5" /> Mở lại màn hình
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Password Recovery Modal when user clicks reset link from Email */}

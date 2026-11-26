@@ -11,9 +11,54 @@ import type {
   BoardSharingState,
   CatMood,
   MemberRole,
+  PolaroidFrameColor,
   WashiStyle,
   WeatherType,
 } from '@/types/catyboard';
+
+export const POLAROID_FRAME_OPTIONS: {
+  id: PolaroidFrameColor;
+  label: string;
+  swatchHex: string;
+  className: string;
+}[] = [
+  {
+    id: 'classic-white',
+    label: 'Trắng cổ điển',
+    swatchHex: '#fdf9f0',
+    className: '',
+  },
+  {
+    id: 'film-black',
+    label: 'Đen Film',
+    swatchHex: '#23201e',
+    className: 'polaroid-frame-film-black',
+  },
+  {
+    id: 'blush-pink',
+    label: 'Hồng phấn',
+    swatchHex: '#fcecef',
+    className: 'polaroid-frame-blush-pink',
+  },
+  {
+    id: 'matcha-mint',
+    label: 'Matcha',
+    swatchHex: '#e9f4ec',
+    className: 'polaroid-frame-matcha-mint',
+  },
+  {
+    id: 'kraft-vintage',
+    label: 'Giấy Kraft',
+    swatchHex: '#ead7ba',
+    className: 'polaroid-frame-kraft-vintage',
+  },
+];
+
+export function getPolaroidFrameClass(frameColor?: PolaroidFrameColor): string {
+  return (
+    POLAROID_FRAME_OPTIONS.find((f) => f.id === frameColor)?.className ?? ''
+  );
+}
 
 export const WASHI_OPTIONS: { id: WashiStyle; label: string; className: string }[] = [
   { id: 'mint-gingham', label: 'Caro Mint', className: 'washi-mint-gingham' },

@@ -22,6 +22,13 @@ import type {
   WeatherType,
 } from '@/types/catyboard';
 
+export const DESK_TREATS: { emoji: string; label: string }[] = [
+  { emoji: '☕', label: 'Ly cà phê ấm' },
+  { emoji: '🧋', label: 'Trà sữa' },
+  { emoji: '🍰', label: 'Bánh ngọt' },
+  { emoji: '🌷', label: 'Nhành hoa nhỏ' },
+];
+
 interface CatCompanionProps {
   catName: string;
   partnerCatName?: string;
@@ -39,6 +46,8 @@ interface CatCompanionProps {
   sharing?: BoardSharingState;
   partnerOnline?: boolean;
   onSendHeartPing?: () => void;
+  deskTreat?: { emoji: string; label: string; fromNickname?: string } | null;
+  onPlaceDeskTreat?: (treat: { emoji: string; label: string }) => void;
   onChangeMood: (mood: CatMood) => void;
   onChangeWeather: (weather: WeatherType) => void;
   compact?: boolean;
@@ -252,6 +261,8 @@ export function CatCompanion({
   sharing,
   partnerOnline = false,
   onSendHeartPing,
+  deskTreat,
+  onPlaceDeskTreat,
   onChangeMood,
   onChangeWeather,
   compact = false,
@@ -433,10 +444,23 @@ export function CatCompanion({
 
           {/* Unlocked Sill Props + Status badge */}
           <div className="flex flex-col items-end gap-1.5 pb-1">
-            {(activeDecor.includes('cactus') ||
+            {(deskTreat ||
+              activeDecor.includes('cactus') ||
               activeDecor.includes('steaming-mug') ||
               activeDecor.includes('books')) && (
-              <div className="flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-sm shadow-2xs">
+              <div className="flex items-center gap-1 rounded-full bg-white/85 px-2.5 py-0.5 text-sm shadow-2xs">
+                {deskTreat && (
+                  <span
+                    title={
+                      deskTreat.fromNickname
+                        ? `${deskTreat.label} từ ${deskTreat.fromNickname}`
+                        : deskTreat.label
+                    }
+                    className="animate-bounce"
+                  >
+                    {deskTreat.emoji}
+                  </span>
+                )}
                 {activeDecor.includes('steaming-mug') && <span title="Ly cà phê ấm">☕</span>}
                 {activeDecor.includes('cactus') && <span title="Chậu xương rồng">🌵</span>}
                 {activeDecor.includes('books') && <span title="Chồng sách lofi">📚</span>}
@@ -586,6 +610,33 @@ export function CatCompanion({
               </button>
             )}
           </div>
+
+          {onPlaceDeskTreat && (
+            <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5 text-[11px]">
+              <span className="font-bold opacity-75">
+                {isDuo ? 'Gửi lên cửa sổ chung:' : 'Đặt lên bệ cửa sổ:'}
+              </span>
+              <div className="flex items-center gap-1">
+                {DESK_TREATS.map((tr) => (
+                  <button
+                    key={tr.emoji}
+                    type="button"
+                    title={tr.label}
+                    onClick={() => onPlaceDeskTreat(tr)}
+                    className={`rounded-full border px-2 py-0.5 text-xs transition hover:scale-110 ${
+                      deskTreat?.emoji === tr.emoji
+                        ? 'border-[#b57a29] bg-[#fff3d6]'
+                        : isNight
+                          ? 'border-[#5a4230] bg-[#36281f]'
+                          : 'border-[#e2cfb3] bg-white/80'
+                    }`}
+                  >
+                    {tr.emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {decorOpen && onToggleDecor && (
             <div

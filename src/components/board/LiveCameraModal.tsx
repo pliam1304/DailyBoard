@@ -13,11 +13,17 @@ import {
   X,
 } from 'lucide-react';
 import {
+  getPolaroidFrameClass,
+  POLAROID_FRAME_OPTIONS,
   WASHI_OPTIONS,
   WashiTape,
 } from '@/components/decor/ScrapbookDecor';
 import { formatFilmDateStamp } from '@/lib/prompts';
-import type { FilmFilterId, WashiStyle } from '@/types/catyboard';
+import type {
+  FilmFilterId,
+  PolaroidFrameColor,
+  WashiStyle,
+} from '@/types/catyboard';
 
 const FILM_FILTERS: { id: FilmFilterId; label: string; css: string }[] = [
   { id: 'natural', label: 'Gốc', css: 'none' },
@@ -43,8 +49,14 @@ interface LiveCameraModalProps {
   entryDate: string;
   initialCaption: string;
   initialWashi: WashiStyle;
+  initialFrameColor?: PolaroidFrameColor;
   onClose: () => void;
-  onConfirmPhoto: (dataUrl: string, caption: string, washiStyle: WashiStyle) => void;
+  onConfirmPhoto: (
+    dataUrl: string,
+    caption: string,
+    washiStyle: WashiStyle,
+    frameColor?: PolaroidFrameColor
+  ) => void;
   onFallbackNativeCamera: () => void;
 }
 
@@ -53,6 +65,7 @@ export function LiveCameraModal({
   entryDate,
   initialCaption,
   initialWashi,
+  initialFrameColor = 'classic-white',
   onClose,
   onConfirmPhoto,
   onFallbackNativeCamera,
@@ -69,6 +82,8 @@ export function LiveCameraModal({
   const [capturedUrl, setCapturedUrl] = useState<string>('');
   const [caption, setCaption] = useState<string>(initialCaption);
   const [washiStyle, setWashiStyle] = useState<WashiStyle>(initialWashi);
+  const [frameColor, setFrameColor] =
+    useState<PolaroidFrameColor>(initialFrameColor);
   const [filmFilter, setFilmFilter] = useState<FilmFilterId>('kodak-warm');
   const [dateStampEnabled, setDateStampEnabled] = useState<boolean>(true);
   const [flashActive, setFlashActive] = useState<boolean>(false);
@@ -370,7 +385,11 @@ export function LiveCameraModal({
                 style={washiStyle}
                 className="-top-1 absolute left-1/2 z-10 -translate-x-1/2 -rotate-2"
               />
-              <div className="polaroid-card rounded-sm p-3 pb-4">
+              <div
+                className={`polaroid-card rounded-sm p-3 pb-4 ${getPolaroidFrameClass(
+                  frameColor
+                )}`}
+              >
                 <img
                   src={capturedUrl}
                   alt="Ảnh vừa chụp"
@@ -386,22 +405,42 @@ export function LiveCameraModal({
               </div>
             </div>
 
-            {/* Washi Tape Picker */}
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="text-[11px] font-bold text-[#6b5340]">Băng keo:</span>
-              {WASHI_OPTIONS.map((w) => (
-                <button
-                  key={w.id}
-                  type="button"
-                  onClick={() => setWashiStyle(w.id)}
-                  title={w.label}
-                  className={`h-6 w-10 rounded-md border transition ${w.className} ${
-                    washiStyle === w.id
-                      ? 'scale-105 border-[#382619] ring-2 ring-[#8a623c]'
-                      : 'border-white/80 opacity-80 hover:opacity-100'
-                  }`}
-                />
-              ))}
+            {/* Washi Tape & Frame Color Picker */}
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <span className="text-[11px] font-bold text-[#6b5340]">Khung ảnh:</span>
+                {POLAROID_FRAME_OPTIONS.map((fr) => (
+                  <button
+                    key={fr.id}
+                    type="button"
+                    onClick={() => setFrameColor(fr.id)}
+                    title={fr.label}
+                    style={{ backgroundColor: fr.swatchHex }}
+                    className={`h-6 w-6 rounded-full border transition ${
+                      frameColor === fr.id
+                        ? 'scale-110 border-[#382619] ring-2 ring-[#b57a29]'
+                        : 'border-[#bfa586] opacity-85 hover:opacity-100'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <span className="text-[11px] font-bold text-[#6b5340]">Băng keo:</span>
+                {WASHI_OPTIONS.map((w) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => setWashiStyle(w.id)}
+                    title={w.label}
+                    className={`h-6 w-10 rounded-md border transition ${w.className} ${
+                      washiStyle === w.id
+                        ? 'scale-105 border-[#382619] ring-2 ring-[#8a623c]'
+                        : 'border-white/80 opacity-80 hover:opacity-100'
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
 
             <div className="flex items-center justify-between gap-2 pt-1">
@@ -419,7 +458,8 @@ export function LiveCameraModal({
                   onConfirmPhoto(
                     capturedUrl,
                     caption.trim() || 'Khoảnh khắc hôm nay ♡',
-                    washiStyle
+                    washiStyle,
+                    frameColor
                   );
                   handleClose();
                 }}

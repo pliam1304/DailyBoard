@@ -6,7 +6,9 @@ import {
   Camera,
   ImagePlus,
   MessageSquarePlus,
+  Palette,
   Send,
+  Share2,
   Star,
   Trash2,
   X,
@@ -16,6 +18,8 @@ import { createUuid, getMemberHeart, getMemberNickname } from '@/lib/sharing';
 import { sanitizeText, validateImageFile } from '@/lib/security';
 import {
   AuthorBadge,
+  getPolaroidFrameClass,
+  POLAROID_FRAME_OPTIONS,
   PressedFlower,
   PuffyHeartSticker,
   WASHI_OPTIONS,
@@ -25,6 +29,7 @@ import type {
   BoardSharingState,
   DayPhoto,
   FontStyle,
+  PolaroidFrameColor,
   ThemeMode,
   WashiStyle,
 } from '@/types/catyboard';
@@ -64,6 +69,8 @@ export function PolaroidGallery({
   const albumInputRef = useRef<HTMLInputElement>(null);
   const [captionDraft, setCaptionDraft] = useState('');
   const [selectedWashi, setSelectedWashi] = useState<WashiStyle>('mint-gingham');
+  const [selectedFrame, setSelectedFrame] =
+    useState<PolaroidFrameColor>('classic-white');
   const [uploading, setUploading] = useState(false);
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<DayPhoto | null>(null);
@@ -98,13 +105,19 @@ export function PolaroidGallery({
     setCommentDraft('');
   };
 
-  const pushPhotoData = (dataUrl: string, caption: string, washi: WashiStyle) => {
+  const pushPhotoData = (
+    dataUrl: string,
+    caption: string,
+    washi: WashiStyle,
+    frameColor: PolaroidFrameColor = selectedFrame
+  ) => {
     const randomTilt = Number(((Math.random() - 0.5) * 6).toFixed(1));
     const newPhoto: DayPhoto = {
       id: createUuid(),
       entryDate,
       dataUrl,
       syncState: 'pending',
+      frameColor,
       caption: sanitizeText(caption, 160) || 'Khoảnh khắc hôm nay ♡',
       washiStyle: washi,
       rotationDeg: randomTilt,
@@ -113,6 +126,37 @@ export function PolaroidGallery({
       createdAt: new Date().toISOString(),
     };
     onAddPhoto(newPhoto);
+  };
+
+  const shareSinglePhoto = async (photo: DayPhoto) => {
+    try {
+      const resp = await fetch(photo.dataUrl);
+      const blob = await resp.blob();
+      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      const file = new File([blob], `polaroid-${photo.entryDate}.${ext}`, {
+        type: blob.type || 'image/jpeg',
+      });
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.share &&
+        (!navigator.canShare || navigator.canShare({ files: [file] }))
+      ) {
+        await navigator.share({
+          title: photo.caption || 'Ảnh Polaroid kỷ niệm',
+          text: photo.caption,
+          files: [file],
+        });
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `polaroid-${photo.entryDate}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // User cancelled share sheet or offline
+    }
   };
 
   const handleFiles = async (files: FileList | null) => {
@@ -225,6 +269,21 @@ export function PolaroidGallery({
             }`}
           />
           <div className="flex flex-wrap items-center gap-1.5">
+            {POLAROID_FRAME_OPTIONS.map((fr) => (
+              <button
+                key={fr.id}
+                type="button"
+                onClick={() => setSelectedFrame(fr.id)}
+                title={`Khung: ${fr.label}`}
+                style={{ backgroundColor: fr.swatchHex }}
+                className={`h-6 w-6 rounded-full border transition ${
+                  selectedFrame === fr.id
+                    ? 'scale-110 border-[#382619] ring-2 ring-[#b57a29]'
+                    : 'border-[#bfa586] opacity-85 hover:opacity-100'
+                }`}
+              />
+            ))}
+            <span className="mx-0.5 opacity-30">|</span>
             {WASHI_OPTIONS.map((w) => (
               <button
                 key={w.id}
@@ -288,7 +347,11 @@ export function PolaroidGallery({
                 className="-right-2 top-3 absolute z-10"
               />
 
-              <div className="polaroid-card w-full max-w-[320px] rounded-sm p-3 pb-4 transition-transform duration-200 group-hover:scale-[1.02]">
+              <div
+                className={`polaroid-card w-full max-w-[320px] rounded-sm p-3 pb-4 transition-transform duration-200 group-hover:scale-[1.02] ${getPolaroidFrameClass(
+                  photo.frameColor
+                )}`}
+              >
                 <button
                   type="button"
                   onClick={() => setPreviewPhoto(photo)}
@@ -317,7 +380,11 @@ export function PolaroidGallery({
                   onChange={(e) =>
                     onUpdatePhoto(photo.id, { caption: e.target.value })
                   }
-                  className={`mt-2.5 w-full bg-transparent text-center text-sm font-bold text-[#382619] outline-none focus:underline ${
+                  className={`mt-2.5 w-full bg-transparent text-center text-sm font-bold outline-none focus:underline ${
+                    photo.frameColor === 'film-black'
+                      ? 'text-[#f4ebd9]'
+                      : 'text-[#382619]'
+                  } ${
                     fontStyle === 'handwriting' ? 'font-handwriting-soft text-base' : ''
                   }`}
                 />
@@ -398,19 +465,35 @@ export function PolaroidGallery({
                   </div>
                 )}
 
-                <div className="mt-2 flex items-center justify-between text-[11px] text-[#5e4634]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const order = WASHI_OPTIONS.map((w) => w.id);
-                      const next =
-                        order[(order.indexOf(photo.washiStyle) + 1) % order.length];
-                      onUpdatePhoto(photo.id, { washiStyle: next });
-                    }}
-                    className="rounded-full bg-[#efe5d3] px-2.5 py-0.5 font-semibold text-[#3f2c1e] hover:bg-[#e5d6be]"
-                  >
-                    Đổi băng keo
-                  </button>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-[#5e4634]">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const order = WASHI_OPTIONS.map((w) => w.id);
+                        const next =
+                          order[(order.indexOf(photo.washiStyle) + 1) % order.length];
+                        onUpdatePhoto(photo.id, { washiStyle: next });
+                      }}
+                      className="rounded-full bg-[#efe5d3] px-2 py-0.5 font-semibold text-[#3f2c1e] hover:bg-[#e5d6be]"
+                    >
+                      Băng keo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const order = POLAROID_FRAME_OPTIONS.map((f) => f.id);
+                        const curr = photo.frameColor || 'classic-white';
+                        const next =
+                          order[(order.indexOf(curr) + 1) % order.length];
+                        onUpdatePhoto(photo.id, { frameColor: next });
+                      }}
+                      title="Đổi màu khung Polaroid"
+                      className="inline-flex items-center gap-1 rounded-full bg-[#efe5d3] px-2 py-0.5 font-semibold text-[#3f2c1e] hover:bg-[#e5d6be]"
+                    >
+                      <Palette className="h-3 w-3" /> Khung
+                    </button>
+                  </div>
 
                   <div className="flex items-center gap-1.5">
                     <button
@@ -451,9 +534,10 @@ export function PolaroidGallery({
           entryDate={entryDate}
           initialCaption={captionDraft}
           initialWashi={selectedWashi}
+          initialFrameColor={selectedFrame}
           onClose={() => setCameraModalOpen(false)}
-          onConfirmPhoto={(dataUrl, caption, washi) => {
-            pushPhotoData(dataUrl, caption, washi);
+          onConfirmPhoto={(dataUrl, caption, washi, frameColor) => {
+            pushPhotoData(dataUrl, caption, washi, frameColor);
             setCaptionDraft('');
           }}
           onFallbackNativeCamera={() => nativeCameraInputRef.current?.click()}
@@ -467,7 +551,9 @@ export function PolaroidGallery({
           onClick={() => setPreviewPhoto(null)}
         >
           <div
-            className="polaroid-card relative max-w-lg rounded-md p-4"
+            className={`polaroid-card relative max-w-lg rounded-md p-4 ${getPolaroidFrameClass(
+              previewPhoto.frameColor
+            )}`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -480,11 +566,26 @@ export function PolaroidGallery({
             <img
               src={previewPhoto.dataUrl}
               alt={previewPhoto.caption}
-              className="max-h-[70vh] w-full rounded-xs object-contain"
+              className="max-h-[68vh] w-full rounded-xs object-contain"
             />
-            <p className="mt-3 text-center text-sm font-bold text-[#382619]">
-              {previewPhoto.caption}
-            </p>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <p
+                className={`text-sm font-bold ${
+                  previewPhoto.frameColor === 'film-black'
+                    ? 'text-[#f4ebd9]'
+                    : 'text-[#382619]'
+                }`}
+              >
+                {previewPhoto.caption}
+              </p>
+              <button
+                type="button"
+                onClick={() => void shareSinglePhoto(previewPhoto)}
+                className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[#3a75a8] px-3 py-1.5 text-xs font-extrabold text-white shadow-xs hover:bg-[#2f6390]"
+              >
+                <Share2 className="h-3.5 w-3.5" /> Chia sẻ
+              </button>
+            </div>
           </div>
         </div>
       )}

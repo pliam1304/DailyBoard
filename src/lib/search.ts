@@ -1,4 +1,4 @@
-import { parseDateKey } from './date.ts';
+import { parseDateKey, toLocalDateKey } from './date.ts';
 import { calculateStreak } from './prompts.ts';
 import type {
   CatDecorId,
@@ -41,18 +41,25 @@ export function searchAcrossBoard(
     }
   }
 
+  const todayKey = toLocalDateKey();
+
   for (const note of store.notes) {
+    const isLockedCapsule = Boolean(note.unlockDate && note.unlockDate > todayKey);
+    const isHiddenContent =
+      note.isPrivate || isLockedCapsule || note.content.startsWith('enc:v1:');
     const titleMatch = note.title.toLowerCase().includes(q);
-    const contentMatch = !note.isPrivate && note.content.toLowerCase().includes(q);
+    const contentMatch = !isHiddenContent && note.content.toLowerCase().includes(q);
     if (titleMatch || contentMatch) {
       hits.push({
         id: `hit-note-${note.id}`,
         kind: 'note',
         entryDate: note.entryDate,
         title: note.title || 'Ghi chú',
-        snippet: note.isPrivate
-          ? 'Tâm thư riêng tư (khớp tiêu đề)'
-          : note.content.slice(0, 90),
+        snippet: isLockedCapsule
+          ? `⏳ Niêm phong đến ngày ${note.unlockDate}`
+          : isHiddenContent
+            ? '🔒 Nội dung riêng tư đang khóa'
+            : note.content.slice(0, 90),
       });
     }
   }

@@ -15,9 +15,13 @@ import {
   X,
 } from 'lucide-react';
 import { formatShortDate, toLocalDateKey } from '@/lib/date';
+import { isCapsuleNote, parseCapsuleStyle } from '@/lib/capsules';
 import { createUuid, isSharedDuo } from '@/lib/sharing';
 import {
   checkRateLimit,
+  decryptPrivateContent,
+  encryptPrivateContent,
+  isEncryptedContent,
   recordRateLimitFailure,
   resetRateLimit,
   sanitizeText,
@@ -41,6 +45,7 @@ interface NotesAndLettersProps {
   onAddNote: (note: NoteItem) => void;
   onUpdateNote: (id: string, patch: Partial<NoteItem>) => void;
   onDeleteNote: (id: string) => void;
+  onOpenCapsuleJar?: () => void;
 }
 
 const PAPER_STYLES: { id: PaperStyle; label: string; cls: string }[] = [
@@ -59,14 +64,19 @@ export function NotesAndLetters({
   onAddNote,
   onUpdateNote,
   onDeleteNote,
+  onOpenCapsuleJar,
 }: NotesAndLettersProps) {
   const [kind, setKind] = useState<NoteKind>('sticky');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [paperStyle, setPaperStyle] = useState<PaperStyle>('cream-torn');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [composePin, setComposePin] = useState('');
+  const [composeErr, setComposeErr] = useState('');
+  const [sessionPin, setSessionPin] = useState('');
   const [unlockDate, setUnlockDate] = useState('');
   const [unlockedIds, setUnlockedIds] = useState<Record<string, boolean>>({});
+  const [decryptedMap, setDecryptedMap] = useState<Record<string, string>>({});
   const [pinInput, setPinInput] = useState('');
   const [pinPromptId, setPinPromptId] = useState<string | null>(null);
   const [pinError, setPinError] = useState('');
@@ -80,24 +90,57 @@ export function NotesAndLetters({
   const beginEdit = (note: NoteItem) => {
     setEditingId(note.id);
     setEditTitle(note.title);
-    setEditContent(note.content);
+    setEditContent(decryptedMap[note.id] ?? note.content);
   };
 
-  const commitEdit = (noteId: string) => {
-    onUpdateNote(noteId, {
+  const commitEdit = async (note: NoteItem) => {
+    const cleaned = sanitizeText(editContent, 10000);
+    const finalContent =
+      note.isPrivate && journalPin && sessionPin
+        ? await encryptPrivateContent(cleaned, sessionPin)
+        : cleaned;
+    if (note.isPrivate && sessionPin) {
+      setDecryptedMap((prev) => ({ ...prev, [note.id]: cleaned }));
+    }
+    onUpdateNote(note.id, {
       title: sanitizeText(editTitle, 120) || 'Ghi chú',
-      content: sanitizeText(editContent, 10000),
+      content: finalContent,
       updatedAt: new Date().toISOString(),
     });
     setEditingId(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setComposeErr('');
     if (!content.trim() && !title.trim()) return;
+
+    const cleanedContent = sanitizeText(content, 10000);
+    let storedContent = cleanedContent;
+
+    if (isPrivate && journalPin) {
+      const pinToUse = composePin.trim() || sessionPin;
+      if (!pinToUse) {
+        setComposeErr('Nhập mã PIN để khóa & mã hóa (AES-256) nội dung riêng tư.');
+        return;
+      }
+      const ok = await verifyJournalPin(pinToUse, journalPin);
+      if (!ok) {
+        setComposeErr('Mã PIN xác nhận chưa chính xác.');
+        return;
+      }
+      setSessionPin(pinToUse);
+      storedContent = await encryptPrivateContent(cleanedContent, pinToUse);
+    }
+
     const now = new Date().toISOString();
+    const newId = createUuid();
+    if (isPrivate && storedContent !== cleanedContent) {
+      setDecryptedMap((prev) => ({ ...prev, [newId]: cleanedContent }));
+    }
+
     onAddNote({
-      id: createUuid(),
+      id: newId,
       entryDate,
       kind,
       title:
@@ -107,7 +150,7 @@ export function NotesAndLetters({
           : kind === 'time_capsule'
             ? 'Thư gửi tương lai'
             : 'Ghi chú nhanh'),
-      content: sanitizeText(content, 10000),
+      content: storedContent,
       paperStyle,
       isPrivate,
       unlockDate: kind === 'time_capsule' && unlockDate ? unlockDate : undefined,
@@ -118,11 +161,12 @@ export function NotesAndLetters({
     });
     setTitle('');
     setContent('');
+    setComposePin('');
     setIsPrivate(false);
     setUnlockDate('');
   };
 
-  const tryUnlockNote = async (noteId: string) => {
+  const tryUnlockNote = async (note: NoteItem) => {
     const rate = checkRateLimit('journal_pin');
     if (!rate.allowed) {
       setPinError(`Thử sai nhiều lần — chờ ${rate.retryAfterSec}s nhé!`);
@@ -131,8 +175,16 @@ export function NotesAndLetters({
 
     const ok = await verifyJournalPin(pinInput, journalPin);
     if (ok) {
+      const plain = await decryptPrivateContent(note.content, pinInput);
+      if (plain === null) {
+        recordRateLimitFailure('journal_pin');
+        setPinError('Mã PIN này không giải mã được nội dung.');
+        return;
+      }
       resetRateLimit('journal_pin');
-      setUnlockedIds((prev) => ({ ...prev, [noteId]: true }));
+      setSessionPin(pinInput);
+      setDecryptedMap((prev) => ({ ...prev, [note.id]: plain }));
+      setUnlockedIds((prev) => ({ ...prev, [note.id]: true }));
       setPinPromptId(null);
       setPinInput('');
       setPinError('');
@@ -150,7 +202,7 @@ export function NotesAndLetters({
     <div className="space-y-4">
       {/* Add Note / Tâm Thư / Time Capsule Composer */}
       <form
-        onSubmit={handleSubmit}
+        onSubmit={(e) => void handleSubmit(e)}
         className={`rounded-3xl border-2 p-4 shadow-sm ${
           isNight
             ? 'border-[#6f523b] bg-[#2c2119]/95 text-[#f4e8d6]'
@@ -274,9 +326,24 @@ export function NotesAndLetters({
               <span>
                 {isSharedDuo(sharing)
                   ? 'Chỉ mình tôi thấy (riêng tư)'
-                  : 'Ẩn nội dung riêng tư'}
+                  : 'Khóa riêng tư'}
               </span>
+              {journalPin && (
+                <span className="rounded-full bg-[#eef7f0] px-2 py-0.5 text-[10px] font-extrabold text-[#255935]">
+                  AES-256
+                </span>
+              )}
             </label>
+
+            {isPrivate && journalPin && !sessionPin && (
+              <input
+                type="password"
+                value={composePin}
+                onChange={(e) => setComposePin(e.target.value)}
+                placeholder="Mã PIN khóa riêng tư..."
+                className="w-40 rounded-lg border border-[#caa982] bg-white px-2.5 py-1 text-xs text-[#382619] outline-none"
+              />
+            )}
 
             {kind === 'time_capsule' && (
               <label className="inline-flex items-center gap-1.5">
@@ -300,6 +367,9 @@ export function NotesAndLetters({
             Ghim lên bảng
           </button>
         </div>
+        {composeErr && (
+          <p className="mt-2 text-xs font-bold text-[#c54650]">{composeErr}</p>
+        )}
       </form>
 
       {/* Notes Scrapbook Cards */}
@@ -308,11 +378,18 @@ export function NotesAndLetters({
           const paperCls =
             PAPER_STYLES.find((p) => p.id === note.paperStyle)?.cls ??
             'paper-cream-torn';
+          const capsuleInfo = isCapsuleNote(note)
+            ? parseCapsuleStyle(note.paperStyle)
+            : null;
           const isTimeLocked =
             note.kind === 'time_capsule' &&
             Boolean(note.unlockDate) &&
             note.unlockDate! > today;
-          const isPinLocked = note.isPrivate && !unlockedIds[note.id];
+          const encrypted = isEncryptedContent(note.content);
+          const isPinLocked =
+            (note.isPrivate && !unlockedIds[note.id]) ||
+            (encrypted && !decryptedMap[note.id]);
+          const displayContent = decryptedMap[note.id] ?? note.content;
 
           return (
             <div
@@ -337,13 +414,24 @@ export function NotesAndLetters({
                 <div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#755b46]">
-                      {note.kind === 'letter'
-                        ? '💌 Tâm thư'
-                        : note.kind === 'time_capsule'
-                          ? `⏳ Mở ngày ${note.unlockDate ? formatShortDate(note.unlockDate) : '...'}`
-                          : '📝 Sticky Note'}
+                      {capsuleInfo?.isCapsule
+                        ? `💊 Viên thuốc • ${capsuleInfo.prescription.shortTag}`
+                        : note.kind === 'letter'
+                          ? '💌 Tâm thư'
+                          : note.kind === 'time_capsule'
+                            ? `⏳ Mở ngày ${note.unlockDate ? formatShortDate(note.unlockDate) : '...'}`
+                            : '📝 Sticky Note'}
                     </span>
                     <AuthorBadge sharing={sharing} role={note.authorRole} />
+                    {capsuleInfo?.isCapsule && onOpenCapsuleJar && (
+                      <button
+                        type="button"
+                        onClick={onOpenCapsuleJar}
+                        className="rounded-full bg-[#b57a29]/15 px-2 py-0.5 text-[10px] font-extrabold text-[#7d5216] hover:bg-[#b57a29]/25"
+                      >
+                        Xem trong lọ
+                      </button>
+                    )}
                   </div>
                   <h4 className="mt-1 text-sm font-extrabold">{note.title}</h4>
                 </div>
@@ -394,16 +482,37 @@ export function NotesAndLetters({
                 <div className="rounded-xl bg-white/70 p-3 text-xs">
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-1 font-semibold text-[#6c523c]">
-                      <Lock className="h-3.5 w-3.5" /> Nội dung riêng tư đang ẩn
+                      <Lock className="h-3.5 w-3.5" />
+                      {encrypted
+                        ? 'Đã mã hóa bảo mật (AES-256)'
+                        : 'Nội dung riêng tư đang ẩn'}
                     </span>
                     <button
                       type="button"
                       onClick={() => {
-                        if (!journalPin) {
+                        if (!journalPin && !encrypted) {
                           setUnlockedIds((prev) => ({
                             ...prev,
                             [note.id]: true,
                           }));
+                        } else if (sessionPin) {
+                          void decryptPrivateContent(note.content, sessionPin).then(
+                            (plain) => {
+                              if (plain !== null) {
+                                setDecryptedMap((prev) => ({
+                                  ...prev,
+                                  [note.id]: plain,
+                                }));
+                                setUnlockedIds((prev) => ({
+                                  ...prev,
+                                  [note.id]: true,
+                                }));
+                              } else {
+                                setPinPromptId(note.id);
+                                setPinError('');
+                              }
+                            }
+                          );
                         } else {
                           setPinPromptId(note.id);
                           setPinError('');
@@ -418,7 +527,7 @@ export function NotesAndLetters({
                     <form
                       onSubmit={(e) => {
                         e.preventDefault();
-                        void tryUnlockNote(note.id);
+                        void tryUnlockNote(note);
                       }}
                       className="mt-2 flex flex-wrap items-center gap-1.5"
                     >
@@ -467,7 +576,7 @@ export function NotesAndLetters({
                     </button>
                     <button
                       type="button"
-                      onClick={() => commitEdit(note.id)}
+                      onClick={() => void commitEdit(note)}
                       className="inline-flex items-center gap-1 rounded-lg bg-[#3d7c57] px-3 py-1 text-[11px] font-extrabold text-white"
                     >
                       <Check className="h-3 w-3" /> Lưu sửa
@@ -476,7 +585,7 @@ export function NotesAndLetters({
                 </div>
               ) : (
                 <p className="whitespace-pre-wrap text-xs leading-relaxed text-[#4f3b2b]">
-                  {note.content}
+                  {displayContent}
                 </p>
               )}
             </div>

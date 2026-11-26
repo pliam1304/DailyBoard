@@ -7,6 +7,7 @@ import {
   Download,
   LogOut,
   RefreshCw,
+  ShieldCheck,
   Smartphone,
   Sparkles,
   Trash2,
@@ -14,6 +15,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
+import { loadOutbox } from '@/lib/outbox';
 import {
   getNotificationPermissionState,
   requestNotificationPermission,
@@ -92,6 +94,8 @@ export function SyncSettingsModal({
   const [spClientId, setSpClientId] = useState(cloudConfig.spotifyClientId || '');
   const [configError, setConfigError] = useState('');
   const [backupMsg, setBackupMsg] = useState('');
+  const [confirmWipeBoard, setConfirmWipeBoard] = useState(false);
+  const [confirmSignOutUnsynced, setConfirmSignOutUnsynced] = useState(false);
 
   const [notifPerm, setNotifPerm] = useState(() =>
     getNotificationPermissionState()
@@ -158,20 +162,19 @@ export function SyncSettingsModal({
   };
 
   const exportBackup = () => {
-    if (!isDevUser) return;
     const blob = new Blob([JSON.stringify(store, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `nameboard-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `nhatki-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    setBackupMsg('Đã tải bản sao lưu cá nhân về máy ✓');
   };
 
   const importBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!isDevUser) return;
     setBackupMsg('');
     const file = e.target.files?.[0];
     if (!file) return;
@@ -182,8 +185,10 @@ export function SyncSettingsModal({
       return;
     }
     onImportStore(res.data);
-    setBackupMsg('Đã kiểm tra & nhập bản sao lưu an toàn ✓');
+    setBackupMsg('Đã kiểm tra & khôi phục bản sao lưu an toàn ✓');
   };
+
+  const pendingOutboxCount = loadOutbox(userEmail).length;
 
   const registeredAccountsCount = isDevUser
     ? Object.keys(loadLocalAccounts()).length
@@ -249,15 +254,25 @@ export function SyncSettingsModal({
                 <button
                   type="button"
                   onClick={() => {
+                    if (pendingOutboxCount > 0 && !confirmSignOutUnsynced) {
+                      setConfirmSignOutUnsynced(true);
+                      return;
+                    }
                     onClose();
                     void onSignOut();
                   }}
                   className="inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 font-bold text-[#9d3741] shadow-2xs hover:bg-[#fde8ea]"
                 >
-                  <LogOut className="h-3.5 w-3.5" /> Đăng xuất
+                  <LogOut className="h-3.5 w-3.5" />
+                  {confirmSignOutUnsynced ? 'Vẫn đăng xuất' : 'Đăng xuất'}
                 </button>
               </div>
             </div>
+            {confirmSignOutUnsynced && pendingOutboxCount > 0 && (
+              <p className="mt-2 rounded-xl bg-[#fff3cd] px-3 py-2 text-[11px] font-bold text-[#755118]">
+                ⚠️ Còn {pendingOutboxCount} mục vừa lưu trên máy chưa kịp đồng bộ lên mây. Hãy bấm “Đồng bộ” trước để không sót dữ liệu nhé!
+              </p>
+            )}
           </section>
 
           {/* Personalization */}
@@ -365,6 +380,79 @@ export function SyncSettingsModal({
             </div>
           </section>
 
+          {/* Data Protection & Privacy Sovereignty for ALL Users */}
+          <section className="space-y-3 rounded-2xl border border-[#dfcba9] bg-white/85 p-4 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 font-extrabold uppercase tracking-wide text-[#245534]">
+                <ShieldCheck className="h-4 w-4 text-[#3d7c57]" />
+                Bảo vệ dữ liệu & Quyền riêng tư
+              </h3>
+              <span className="rounded-full bg-[#eef7f0] px-2.5 py-0.5 text-[10px] font-extrabold text-[#245534]">
+                {hasExistingPin ? 'Khóa PIN & AES-256 bật ✓' : 'Tự động xóa GPS ảnh ✓'}
+              </span>
+            </div>
+
+            <div className="rounded-xl bg-[#f7efe0] p-2.5 text-[11px] leading-relaxed text-[#4b3525]">
+              • Mọi tấm ảnh tải lên đều được gỡ sạch tọa độ GPS (EXIF) ngay trên thiết bị.<br />
+              • Thư & viên thuốc riêng tư có mã PIN được mã hóa chuẩn AES-256 trước khi lưu.
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={exportBackup}
+                  className="inline-flex items-center gap-1 rounded-xl border border-[#d6c09d] bg-[#fbf5e9] px-3 py-1.5 font-bold text-[#382619] hover:bg-[#efe2cc]"
+                >
+                  <Download className="h-3.5 w-3.5" /> Tải bản sao lưu (.json)
+                </button>
+                <label className="inline-flex cursor-pointer items-center gap-1 rounded-xl border border-[#d6c09d] bg-[#fbf5e9] px-3 py-1.5 font-bold text-[#382619] hover:bg-[#efe2cc]">
+                  <Upload className="h-3.5 w-3.5" /> Khôi phục từ file
+                  <input
+                    type="file"
+                    accept="application/json"
+                    onChange={(e) => void importBackup(e)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {confirmWipeBoard ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmWipeBoard(false)}
+                    className="rounded-xl bg-[#ede0cc] px-2.5 py-1.5 text-[11px] font-bold text-[#382619]"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onResetFreshBoard();
+                      setConfirmWipeBoard(false);
+                      onClose();
+                    }}
+                    className="inline-flex items-center gap-1 rounded-xl bg-[#c54650] px-3 py-1.5 text-[11px] font-extrabold text-white"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Xác nhận xóa trắng
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmWipeBoard(true)}
+                  className="inline-flex items-center gap-1 rounded-xl bg-[#fde6e8] px-3 py-1.5 font-bold text-[#9d3741] hover:bg-[#fad3d7]"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Xóa trắng bảng
+                </button>
+              )}
+            </div>
+            {backupMsg && (
+              <p className="font-bold text-[#3d7c57]">{backupMsg}</p>
+            )}
+          </section>
+
           {/* Notifications & Mobile Guide */}
           <section className="space-y-2.5 rounded-2xl border border-[#dfcba9] bg-white/85 p-4 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -434,41 +522,6 @@ export function SyncSettingsModal({
                   <p className="font-bold text-[#b54852]">{configError}</p>
                 )}
               </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={exportBackup}
-                    className="inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 font-bold text-[#382619] shadow-2xs hover:bg-[#efe4d1]"
-                  >
-                    <Download className="h-3.5 w-3.5" /> Xuất JSON DB
-                  </button>
-                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-xl bg-white px-3 py-1.5 font-bold text-[#382619] shadow-2xs hover:bg-[#efe4d1]">
-                    <Upload className="h-3.5 w-3.5" /> Nhập JSON DB
-                    <input
-                      type="file"
-                      accept="application/json"
-                      onChange={(e) => void importBackup(e)}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    onResetFreshBoard();
-                    onClose();
-                  }}
-                  className="inline-flex items-center gap-1 rounded-xl bg-[#fde6e8] px-3 py-1.5 font-bold text-[#9d3741] hover:bg-[#fad3d7]"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Làm mới Board về trống
-                </button>
-              </div>
-              {backupMsg && (
-                <p className="font-bold text-[#3d7c57]">{backupMsg}</p>
-              )}
             </section>
           )}
         </div>

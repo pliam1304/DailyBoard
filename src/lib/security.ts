@@ -199,6 +199,90 @@ export async function verifyJournalPin(
   return constantTimeEqual(cleaned, storedValue);
 }
 
+// --- Client-Side End-to-End AES-GCM 256-bit Encryption for Private Notes & Capsules ---
+
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.length % 2 === 0 ? hex : `0${hex}`;
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+async function deriveAesKeyFromPin(
+  pin: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(`nhatki-e2ee-v1:${pin.trim()}`),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt as BufferSource,
+      iterations: 100_000,
+      hash: 'SHA-256',
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+export function isEncryptedContent(value?: string | null): boolean {
+  return Boolean(value && value.startsWith('enc:v1:'));
+}
+
+export async function encryptPrivateContent(
+  plainText: string,
+  pin: string
+): Promise<string> {
+  const salt = new Uint8Array(16);
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(salt);
+  crypto.getRandomValues(iv);
+  const key = await deriveAesKeyFromPin(pin, salt);
+  const encoded = new TextEncoder().encode(plainText);
+  const cipherBuf = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource },
+    key,
+    encoded
+  );
+  const cipherHex = bytesToHex(new Uint8Array(cipherBuf));
+  return `enc:v1:${bytesToHex(salt)}:${bytesToHex(iv)}:${cipherHex}`;
+}
+
+export async function decryptPrivateContent(
+  payload: string,
+  pin: string
+): Promise<string | null> {
+  if (!isEncryptedContent(payload)) return payload;
+  const parts = payload.split(':');
+  if (parts.length !== 5) return null;
+  const [, , saltHex, ivHex, cipherHex] = parts;
+  try {
+    const salt = hexToBytes(saltHex);
+    const iv = hexToBytes(ivHex);
+    const cipherBytes = hexToBytes(cipherHex);
+    const key = await deriveAesKeyFromPin(pin, salt);
+    const plainBuf = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv as BufferSource },
+      key,
+      cipherBytes as BufferSource
+    );
+    return new TextDecoder().decode(plainBuf);
+  } catch {
+    return null;
+  }
+}
+
 // --- Client-side Rate Limiter for Login & PIN Unlock ---
 
 interface RateBucket {

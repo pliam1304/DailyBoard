@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
-import { Download, Eye, EyeOff, ReceiptText, Sparkles, X } from 'lucide-react';
+import { Download, Eye, EyeOff, ReceiptText, Share2, Sparkles, X } from 'lucide-react';
 import { formatDisplayDateVi, formatVnd } from '@/lib/date';
 import {
   getMemberNickname,
@@ -10,6 +10,7 @@ import {
 } from '@/lib/sharing';
 import {
   AuthorBadge,
+  getPolaroidFrameClass,
   MOOD_META,
   PressedFlower,
   PuffyHeartSticker,
@@ -110,7 +111,10 @@ export function DailySnapshotModal({
     .reduce((acc, f) => acc + f.amount, 0);
 
   const publicNotes = notes.filter(
-    (n) => n.kind !== 'time_capsule' && (includePrivate || !n.isPrivate)
+    (n) =>
+      n.kind !== 'time_capsule' &&
+      !n.content.startsWith('enc:v1:') &&
+      (includePrivate || !n.isPrivate)
   );
   const featuredLetter =
     publicNotes.find((n) => n.kind === 'letter') ?? publicNotes[0];
@@ -127,6 +131,40 @@ export function DailySnapshotModal({
       link.download = `${profile.boardTitle.toLowerCase()}-${entryDate}-${layout}.png`;
       link.href = dataUrl;
       link.click();
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleNativeSharePng = async () => {
+    if (!cardRef.current) return;
+    setExporting(true);
+    try {
+      const dataUrl = await toPng(cardRef.current, {
+        cacheBust: true,
+        pixelRatio: 2,
+      });
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const fileName = `${profile.boardTitle.toLowerCase()}-${entryDate}-${layout}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.share &&
+        (!navigator.canShare || navigator.canShare({ files: [file] }))
+      ) {
+        await navigator.share({
+          title: `${profile.boardTitle} • ${entryDate}`,
+          files: [file],
+        });
+        return;
+      }
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = dataUrl;
+      link.click();
+    } catch {
+      // User cancelled share sheet
     } finally {
       setExporting(false);
     }
@@ -205,11 +243,21 @@ export function DailySnapshotModal({
             <button
               type="button"
               disabled={exporting}
+              onClick={() => void handleNativeSharePng()}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#3a75a8] px-3.5 py-1.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#2f6390] disabled:opacity-60"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Chia sẻ ngay
+            </button>
+
+            <button
+              type="button"
+              disabled={exporting}
               onClick={handleDownloadPng}
               className="inline-flex items-center gap-1.5 rounded-xl bg-[#423022] px-4 py-1.5 text-xs font-extrabold text-[#faf3e3] shadow-sm transition hover:opacity-90 disabled:opacity-60"
             >
               <Download className="h-3.5 w-3.5" />
-              {exporting ? 'Đang xuất ảnh...' : 'Tải ảnh PNG'}
+              {exporting ? 'Đang xuất...' : 'Tải PNG'}
             </button>
           </div>
         </div>
@@ -335,22 +383,32 @@ export function DailySnapshotModal({
                       </div>
                     </div>
                   ) : coverPhoto ? (
-                    <div className="relative w-full max-w-[260px] -rotate-2">
-                      <WashiTape
-                        style={coverPhoto.washiStyle}
-                        className="-top-2.5 absolute left-1/2 z-10 -translate-x-1/2"
-                      />
-                      <div className="polaroid-card rounded-sm p-2.5 pb-4">
-                        <img
-                          src={coverPhoto.dataUrl}
-                          alt={coverPhoto.caption}
-                          className="aspect-[4/3] w-full object-cover"
+                      <div className="relative w-full max-w-[260px] -rotate-2">
+                        <WashiTape
+                          style={coverPhoto.washiStyle}
+                          className="-top-2.5 absolute left-1/2 z-10 -translate-x-1/2"
                         />
-                        <p className="mt-2 text-center text-xs font-bold text-[#423022]">
-                          {coverPhoto.caption}
-                        </p>
+                        <div
+                          className={`polaroid-card rounded-sm p-2.5 pb-4 ${getPolaroidFrameClass(
+                            coverPhoto.frameColor
+                          )}`}
+                        >
+                          <img
+                            src={coverPhoto.dataUrl}
+                            alt={coverPhoto.caption}
+                            className="aspect-[4/3] w-full object-cover"
+                          />
+                          <p
+                            className={`mt-2 text-center text-xs font-bold ${
+                              coverPhoto.frameColor === 'film-black'
+                                ? 'text-[#f4ebd9]'
+                                : 'text-[#423022]'
+                            }`}
+                          >
+                            {coverPhoto.caption}
+                          </p>
+                        </div>
                       </div>
-                    </div>
                   ) : (
                     <div className="polaroid-card flex aspect-[4/3] w-full max-w-[260px] flex-col items-center justify-center rounded-sm p-4 text-center text-xs text-[#755b46]">
                       <span className="text-2xl">🐾</span>

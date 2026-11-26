@@ -8,7 +8,18 @@ export type WashiStyle =
   | 'cream-dots'
   | 'lavender-plaid'
   | 'daisy-tape';
-export type PaperStyle = 'cream-torn' | 'blue-lined' | 'mint-card' | 'kraft-ticket';
+export type PaperStyle =
+  | 'cream-torn'
+  | 'blue-lined'
+  | 'mint-card'
+  | 'kraft-ticket'
+  | `capsule:${string}`;
+export type PolaroidFrameColor =
+  | 'classic-white'
+  | 'film-black'
+  | 'blush-pink'
+  | 'matcha-mint'
+  | 'kraft-vintage';
 export type NoteKind = 'sticky' | 'letter' | 'time_capsule';
 export type ReminderCategory = 'life' | 'work' | 'self-care' | 'cat';
 export type FinanceType = 'expense' | 'income' | 'saving';
@@ -138,6 +149,7 @@ export interface DayPhoto {
   dataUrl: string; // Compressed base64 or signed URL
   storagePath?: string;
   syncState?: 'pending' | 'synced' | 'error';
+  frameColor?: PolaroidFrameColor;
   caption: string;
   washiStyle: WashiStyle;
   rotationDeg: number;

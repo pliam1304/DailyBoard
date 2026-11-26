@@ -36,10 +36,13 @@ import {
 } from '../src/lib/search.ts';
 import {
   checkRateLimit,
+  decryptPrivateContent,
   DEV_ADMIN_EMAIL,
   DEV_ADMIN_PASSWORD_HASH,
+  encryptPrivateContent,
   hashJournalPin,
   isDevAdminEmail,
+  isEncryptedContent,
   isHashedPin,
   isLikelyServiceRoleKey,
   recordRateLimitFailure,
@@ -49,6 +52,12 @@ import {
   validateSafeHttpUrl,
   verifyJournalPin,
 } from '../src/lib/security.ts';
+import {
+  encodeCapsuleStyle,
+  extractCapsulesFromNotes,
+  isCapsuleNote,
+  parseCapsuleStyle,
+} from '../src/lib/capsules.ts';
 
 test('parseMusicUrl parses YouTube watch, short, live, and playlist links', () => {
   const watch = parseMusicUrl('https://www.youtube.com/watch?v=jfKfPfyJRdk');
@@ -432,4 +441,90 @@ test('security helpers hash PINs, block service_role keys, restrict uploads, rat
     await verifyJournalPin('WrongPassword999', DEV_ADMIN_PASSWORD_HASH),
     false
   );
+
+  // 8. End-to-End AES-GCM 256-bit Encryption for Private Notes & Capsules
+  const secretMessage =
+    'Hôm nay hơi mệt một chút nhưng cảm ơn bản thân vì đã cố gắng 💊✨';
+  const encryptedA = await encryptPrivateContent(secretMessage, '2468');
+  const encryptedB = await encryptPrivateContent(secretMessage, '2468');
+  assert.equal(isEncryptedContent(encryptedA), true);
+  assert.notEqual(encryptedA, encryptedB); // Random salt + IV on every encryption
+  assert.equal(encryptedA.includes('cố gắng'), false);
+  assert.equal(await decryptPrivateContent(encryptedA, '9999'), null);
+  assert.equal(await decryptPrivateContent(encryptedA, '2468'), secretMessage);
+});
+
+test('capsule metadata encoding, parsing, and search seal protections work cleanly', () => {
+  const style = encodeCapsuleStyle(
+    'clear-firefly',
+    'sad',
+    3,
+    'origami-star',
+    'sakura-pink'
+  );
+  assert.equal(
+    style,
+    'capsule:clear-firefly:sad:3:origami-star:sakura-pink'
+  );
+
+  const parsed = parseCapsuleStyle(style);
+  assert.equal(parsed.isCapsule, true);
+  assert.equal(parsed.colorId, 'clear-firefly');
+  assert.equal(parsed.prescriptionId, 'sad');
+  assert.equal(parsed.openedCount, 3);
+  assert.equal(parsed.palette.translucent, true);
+  assert.equal(parsed.charmId, 'origami-star');
+  assert.equal(parsed.scrollSkinId, 'sakura-pink');
+
+  // Backward compatibility for 4-segment capsule strings
+  const legacyParsed = parseCapsuleStyle('capsule:starlight-gold:miss:2');
+  assert.equal(legacyParsed.isCapsule, true);
+  assert.equal(legacyParsed.colorId, 'starlight-gold');
+  assert.equal(legacyParsed.charmId, 'clover');
+  assert.equal(legacyParsed.scrollSkinId, 'parchment');
+
+  const plainParsed = parseCapsuleStyle('cream-torn');
+  assert.equal(plainParsed.isCapsule, false);
+
+  const store = normalizeStoreData({
+    version: 3,
+    notes: [
+      {
+        id: createUuid(),
+        entryDate: '2026-11-26',
+        kind: 'time_capsule',
+        title: 'Viên thuốc tương lai',
+        content: 'Bí mật chỉ mở vào năm 2099',
+        paperStyle: encodeCapsuleStyle('lavender-mist', 'time_locked', 0),
+        isPrivate: false,
+        unlockDate: '2099-12-31',
+        pinned: false,
+        createdAt: '',
+        updatedAt: '',
+      },
+      {
+        id: createUuid(),
+        entryDate: '2026-11-26',
+        kind: 'sticky',
+        title: 'Ghi chú thường',
+        content: 'Mua sữa hạt',
+        paperStyle: 'cream-torn',
+        isPrivate: false,
+        pinned: true,
+        createdAt: '',
+        updatedAt: '',
+      },
+    ],
+  });
+
+  const capsules = extractCapsulesFromNotes(store.notes);
+  assert.equal(capsules.length, 1);
+  assert.equal(isCapsuleNote(store.notes[0]), true);
+  assert.equal(isCapsuleNote(store.notes[1]), false);
+
+  // Time-locked capsule content must NOT leak through global search before unlockDate
+  assert.equal(searchAcrossBoard(store, 'năm 2099').length, 0);
+  const titleHits = searchAcrossBoard(store, 'tương lai');
+  assert.equal(titleHits.length, 1);
+  assert.match(titleHits[0].snippet, /Niêm phong/);
 });

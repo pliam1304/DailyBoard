@@ -197,6 +197,51 @@ body {
     0 1px 3px rgba(49, 30, 15, 0.12);
 }
 
+.polaroid-frame-film-black {
+  background: #23201e;
+  color: #f4ebd9;
+  box-shadow:
+    0 8px 22px rgba(15, 10, 7, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.polaroid-frame-blush-pink {
+  background: #fcecef;
+  color: #4a2830;
+}
+
+.polaroid-frame-matcha-mint {
+  background: #e9f4ec;
+  color: #21402a;
+}
+
+.polaroid-frame-kraft-vintage {
+  background: #ead7ba;
+  color: #3b2818;
+  background-image: radial-gradient(rgba(96, 62, 32, 0.07) 1px, transparent 0);
+  background-size: 12px 12px;
+}
+
+@keyframes scrollUnfurl {
+  0% {
+    opacity: 0;
+    transform: scaleY(0.18) translateY(-12px);
+  }
+  65% {
+    opacity: 1;
+    transform: scaleY(1.03) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+}
+
+.animate-scroll-unfurl {
+  transform-origin: top center;
+  animation: scrollUnfurl 0.52s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
 /* Subtle lofi night rain animation */
 @keyframes rainFall {
   0% {
