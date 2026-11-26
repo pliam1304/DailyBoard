@@ -442,31 +442,69 @@ alter table public.finance_entries enable row level security;
 alter table public.voice_memos enable row level security;
 alter table public.music_tracks enable row level security;
 
+-- Lock anonymous table access & explicitly grant authenticated role privileges (RLS still enforces row ownership)
+revoke all on public.boards from anon;
+revoke all on public.board_members from anon;
+revoke all on public.board_invitations from anon;
+revoke all on public.day_entries from anon;
+revoke all on public.day_photos from anon;
+revoke all on public.notes from anon;
+revoke all on public.reminders from anon;
+revoke all on public.finance_entries from anon;
+revoke all on public.voice_memos from anon;
+revoke all on public.music_tracks from anon;
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.boards to authenticated;
+grant select, insert, update, delete on public.board_members to authenticated;
+grant select, insert, update, delete on public.board_invitations to authenticated;
+grant select, insert, update, delete on public.day_entries to authenticated;
+grant select, insert, update, delete on public.day_photos to authenticated;
+grant select, insert, update, delete on public.notes to authenticated;
+grant select, insert, update, delete on public.reminders to authenticated;
+grant select, insert, update, delete on public.finance_entries to authenticated;
+grant select, insert, update, delete on public.voice_memos to authenticated;
+grant select, insert, update, delete on public.music_tracks to authenticated;
+
+grant execute on function public.is_board_member(uuid) to authenticated;
+grant execute on function public.is_board_owner(uuid) to authenticated;
+grant execute on function public.is_dev_admin() to authenticated;
+grant execute on function public.ensure_personal_board(text, text) to authenticated;
+grant execute on function public.get_my_pending_invitations() to authenticated;
+grant execute on function public.accept_board_invitation(text) to authenticated;
+
 -- Boards policies
+drop policy if exists "Members view and update shared board" on public.boards;
 create policy "Members view and update shared board" on public.boards
   for select using (public.is_board_member(id));
 
+drop policy if exists "Members update shared board" on public.boards;
 create policy "Members update shared board" on public.boards
   for update using (public.is_board_member(id))
   with check (public.is_board_member(id));
 
+drop policy if exists "Authenticated users create own board" on public.boards;
 create policy "Authenticated users create own board" on public.boards
   for insert with check (auth.uid() = owner_id);
 
 -- Board members policies (both members can view & rename each other's nickname!)
+drop policy if exists "Members view board members" on public.board_members;
 create policy "Members view board members" on public.board_members
   for select using (public.is_board_member(board_id));
 
+drop policy if exists "Members update nicknames on shared board" on public.board_members;
 create policy "Members update nicknames on shared board" on public.board_members
   for update using (public.is_board_member(board_id))
   with check (public.is_board_member(board_id));
 
+drop policy if exists "Owner removes partner or self leaves" on public.board_members;
 create policy "Owner removes partner or self leaves" on public.board_members
   for delete using (
     user_id = auth.uid() or public.is_board_owner(board_id)
   );
 
 -- Board invitations policies
+drop policy if exists "Members manage board invitations" on public.board_invitations;
 create policy "Members manage board invitations" on public.board_invitations
   for all using (
     public.is_board_member(board_id)
@@ -475,26 +513,31 @@ create policy "Members manage board invitations" on public.board_invitations
   with check (public.is_board_owner(board_id));
 
 -- Shared module policies
+drop policy if exists "Members manage shared day_entries" on public.day_entries;
 create policy "Members manage shared day_entries" on public.day_entries
   for all using (public.is_board_member(board_id))
   with check (public.is_board_member(board_id));
 
+drop policy if exists "Members manage shared day_photos" on public.day_photos;
 create policy "Members manage shared day_photos" on public.day_photos
   for all using (public.is_board_member(board_id))
   with check (public.is_board_member(board_id));
 
 -- Notes preserve privacy: private notes are visible/editable ONLY by their own author
+drop policy if exists "Members read shared notes and own private notes" on public.notes;
 create policy "Members read shared notes and own private notes" on public.notes
   for select using (
     public.is_board_member(board_id)
     and (not is_private or author_id = auth.uid())
   );
 
+drop policy if exists "Members insert notes on shared board" on public.notes;
 create policy "Members insert notes on shared board" on public.notes
   for insert with check (
     public.is_board_member(board_id) and author_id = auth.uid()
   );
 
+drop policy if exists "Members update shared notes or own private notes" on public.notes;
 create policy "Members update shared notes or own private notes" on public.notes
   for update using (
     public.is_board_member(board_id)
@@ -505,24 +548,29 @@ create policy "Members update shared notes or own private notes" on public.notes
     and (not is_private or author_id = auth.uid())
   );
 
+drop policy if exists "Members delete shared notes or own private notes" on public.notes;
 create policy "Members delete shared notes or own private notes" on public.notes
   for delete using (
     public.is_board_member(board_id)
     and (not is_private or author_id = auth.uid())
   );
 
+drop policy if exists "Members manage shared reminders" on public.reminders;
 create policy "Members manage shared reminders" on public.reminders
   for all using (public.is_board_member(board_id))
   with check (public.is_board_member(board_id));
 
+drop policy if exists "Members manage shared finance_entries" on public.finance_entries;
 create policy "Members manage shared finance_entries" on public.finance_entries
   for all using (public.is_board_member(board_id))
   with check (public.is_board_member(board_id));
 
+drop policy if exists "Members manage shared voice_memos" on public.voice_memos;
 create policy "Members manage shared voice_memos" on public.voice_memos
   for all using (public.is_board_member(board_id))
   with check (public.is_board_member(board_id));
 
+drop policy if exists "Members manage shared music_tracks" on public.music_tracks;
 create policy "Members manage shared music_tracks" on public.music_tracks
   for all using (public.is_board_member(board_id))
   with check (public.is_board_member(board_id));
@@ -571,14 +619,29 @@ create policy "Board members delete shared photos" on storage.objects
     and public.is_board_member(((storage.foldername(name))[1])::uuid)
   );
 
--- Enable Realtime on all shared tables
-alter publication supabase_realtime add table public.boards;
-alter publication supabase_realtime add table public.board_members;
-alter publication supabase_realtime add table public.board_invitations;
-alter publication supabase_realtime add table public.day_entries;
-alter publication supabase_realtime add table public.day_photos;
-alter publication supabase_realtime add table public.notes;
-alter publication supabase_realtime add table public.reminders;
-alter publication supabase_realtime add table public.finance_entries;
-alter publication supabase_realtime add table public.voice_memos;
-alter publication supabase_realtime add table public.music_tracks;
+-- Enable Realtime on all shared tables (idempotent)
+do $$
+declare
+  tbl text;
+begin
+  foreach tbl in array array[
+    'boards',
+    'board_members',
+    'board_invitations',
+    'day_entries',
+    'day_photos',
+    'notes',
+    'reminders',
+    'finance_entries',
+    'voice_memos',
+    'music_tracks'
+  ]
+  loop
+    begin
+      execute format('alter publication supabase_realtime add table public.%I', tbl);
+    exception
+      when duplicate_object then
+        null;
+    end;
+  end loop;
+end $$;
