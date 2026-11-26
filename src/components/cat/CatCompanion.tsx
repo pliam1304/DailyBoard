@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Fish, Heart, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Fish, Heart, MailOpen, Sparkles } from 'lucide-react';
 import { ambientEngine } from '@/lib/audio';
+import { toLocalDateKey } from '@/lib/date';
+import { getDailyCatFortune } from '@/lib/prompts';
 import { CAT_DECOR_CATALOG } from '@/lib/search';
 import {
   getMemberHeart,
@@ -27,6 +29,7 @@ interface CatCompanionProps {
   mood: CatMood;
   weather: WeatherType;
   theme: ThemeMode;
+  entryDate?: string;
   isPlayingMusic: boolean;
   completedCount: number;
   totalCount: number;
@@ -239,6 +242,7 @@ export function CatCompanion({
   mood,
   weather,
   theme,
+  entryDate,
   isPlayingMusic,
   completedCount,
   totalCount,
@@ -255,6 +259,29 @@ export function CatCompanion({
   const [hearts, setHearts] = useState<number[]>([]);
   const [bubble, setBubble] = useState<string | null>(null);
   const [decorOpen, setDecorOpen] = useState(false);
+  const [fortuneOpen, setFortuneOpen] = useState(false);
+  const [fortuneOpenedToday, setFortuneOpenedToday] = useState(false);
+  const [isSunsetHour, setIsSunsetHour] = useState(false);
+
+  const dateKey = entryDate || toLocalDateKey();
+  const dailyFortune = getDailyCatFortune(dateKey);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const h = new Date().getHours();
+    setIsSunsetHour(h >= 16 && h < 19);
+    const key = `nhatki_fortune_${dateKey}`;
+    setFortuneOpenedToday(window.localStorage.getItem(key) === '1');
+  }, [dateKey]);
+
+  const handleOpenFortune = () => {
+    ambientEngine.playPurrChime();
+    setFortuneOpen((v) => !v);
+    if (!fortuneOpenedToday && typeof window !== 'undefined') {
+      window.localStorage.setItem(`nhatki_fortune_${dateKey}`, '1');
+      setFortuneOpenedToday(true);
+    }
+  };
 
   const isNight = theme === 'cozy-night';
   const showRain = weather === 'rainy' || isNight;
@@ -276,15 +303,15 @@ export function CatCompanion({
     const messages = isDuo
       ? [
           `${catName} & ${partnerCatName}: Chúc ${ownerNick} và ${partnerNick} một ngày thật êm ♡`,
-          `${catName}: Nhớ chụp ảnh Polaroid gửi cho nhau nha!`,
-          `${partnerCatName}: Gừ gừ... 2 đứa mình ngồi nghe nhạc chung nào~`,
+          `${catName}: Nhớ chụp ảnh gửi cho nhau nha!`,
+          `${partnerCatName}: Gừ gừ... ngồi nghe nhạc chung nào~`,
         ]
       : [
           `${catName}: Meow~ Hôm nay bạn vất vả rồi ♡`,
-          `${catName}: Nhớ chụp 1 tấm ảnh kỷ niệm nha!`,
+          `${catName}: Bóc mẩu giấy hôm nay chưa nè?`,
           completedCount > 0
             ? `${catName}: Đã xong ${completedCount} việc rồi, giỏi quá!`
-            : `${catName}: Cùng bật chút lofi rồi từ từ làm nhé~`,
+            : `${catName}: Bật chút nhạc rồi thư thả làm nhé~`,
         ];
     setBubble(messages[Math.floor(Math.random() * messages.length)]);
     setTimeout(() => setBubble(null), 3200);
@@ -305,7 +332,9 @@ export function CatCompanion({
             ? 'border-[#5a4230] bg-gradient-to-b from-[#1a2338] via-[#26324d] to-[#3a3242]'
             : weather === 'rainy'
               ? 'border-[#b9cfdf] bg-gradient-to-b from-[#a8c2d8] via-[#cbe0ee] to-[#e9f1f5]'
-              : 'border-[#bdd9eb] bg-gradient-to-b from-[#89c4ee] via-[#c6e6fa] to-[#f4efe4]'
+              : isSunsetHour
+                ? 'border-[#e3b996] bg-gradient-to-b from-[#e89973] via-[#f5c79c] to-[#f8ebd7]'
+                : 'border-[#bdd9eb] bg-gradient-to-b from-[#89c4ee] via-[#c6e6fa] to-[#f4efe4]'
         }`}
       >
         <div className="pointer-events-none absolute inset-0 rounded-2xl border-4 border-white/25" />
@@ -454,6 +483,57 @@ export function CatCompanion({
           {bubble}
         </div>
       )}
+
+      {/* Daily Fortune Cookie / Slip from Mochi */}
+      <div className="mt-2.5">
+        {!fortuneOpen ? (
+          <button
+            type="button"
+            onClick={handleOpenFortune}
+            className={`flex w-full items-center justify-between gap-2 rounded-2xl border px-3 py-2 text-left text-xs font-bold transition ${
+              !fortuneOpenedToday
+                ? 'border-[#d6a360] bg-[#fff5df] text-[#5b3b18] shadow-xs hover:bg-[#fdedca]'
+                : isNight
+                  ? 'border-[#5a4230] bg-[#36281f] text-[#e7d6c1]'
+                  : 'border-[#e4d2b6] bg-[#f7efe0] text-[#553e2c]'
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5 truncate">
+              <MailOpen className="h-3.5 w-3.5 shrink-0 text-[#b57a29]" />
+              <span>
+                {!fortuneOpenedToday
+                  ? `✉️ Bóc mẩu giấy hôm nay từ ${catName}`
+                  : `📜 Xem lại lời nhắn hôm nay của ${catName}`}
+              </span>
+            </span>
+            {!fortuneOpenedToday && (
+              <span className="shrink-0 rounded-full bg-[#b57a29] px-2 py-0.5 text-[10px] font-extrabold text-white">
+                Mới
+              </span>
+            )}
+          </button>
+        ) : (
+          <div
+            onClick={() => setFortuneOpen(false)}
+            className={`cursor-pointer rounded-2xl border-2 border-dashed p-3 text-xs transition ${
+              isNight
+                ? 'border-[#7c5d43] bg-[#36281f] text-[#f5e9d7]'
+                : 'border-[#c89d6d] bg-[#fffaf0] text-[#382619]'
+            }`}
+          >
+            <div className="flex items-center justify-between text-[10px] font-extrabold uppercase text-[#b57a29]">
+              <span>🐾 {catName} nhắn bạn hôm nay</span>
+              <span className="opacity-65">Chạm để gấp lại</span>
+            </div>
+            <p className="mt-1 font-bold leading-relaxed">
+              “{dailyFortune.quote}”
+            </p>
+            <p className="mt-1 text-[11px] opacity-80">
+              {dailyFortune.microHint}
+            </p>
+          </div>
+        )}
+      </div>
 
       {!compact && (
         <div className="mt-3 space-y-2">

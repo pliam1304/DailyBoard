@@ -25,6 +25,7 @@ import {
   calculateStreak,
   computeMonthlyWrapped,
   formatFilmDateStamp,
+  getDailyCatFortune,
   getDailyPrompt,
 } from '../src/lib/prompts.ts';
 import {
@@ -207,6 +208,24 @@ test('daily prompts, retro film date stamp, streak calculation, and monthly wrap
       },
     ],
   });
+
+  const fortune = getDailyCatFortune('2026-11-26');
+  assert.ok(fortune.quote.length > 10);
+  assert.equal(fortune.quote, getDailyCatFortune('2026-11-26').quote);
+
+  const quickCheckinOnly = normalizeStoreData({
+    version: 3,
+    dayEntries: {
+      '2026-11-26': {
+        entryDate: '2026-11-26',
+        mood: 'happy',
+        weather: 'sunny',
+        checkedIn: true,
+        updatedAt: '',
+      },
+    },
+  });
+  assert.equal(calculateStreak(quickCheckinOnly, '2026-11-26'), 1);
 
   assert.equal(calculateStreak(mockStore, '2026-11-20'), 2);
   const wrapped = computeMonthlyWrapped(mockStore, '2026-11');

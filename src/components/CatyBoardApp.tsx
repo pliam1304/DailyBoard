@@ -1,32 +1,29 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
 import {
   CalendarDays,
-  Camera,
-  CheckSquare,
   ChevronLeft,
   ChevronRight,
   Cloud,
+  Disc3,
   Flame,
   Heart,
   History,
   LayoutGrid,
-  Mic,
   Moon,
   MoonStar,
   Music,
   NotebookPen,
-  Plus,
   Search,
   Settings,
+  SkipForward,
   Sparkles,
+  Square,
   Sun,
   UserPlus,
   Users,
-  Wallet,
   X,
 } from 'lucide-react';
 import type { RealtimeChannel, User } from '@supabase/supabase-js';
@@ -97,6 +94,10 @@ import { CatCompanion } from '@/components/cat/CatCompanion';
 import { FocusPomodoroCard } from '@/components/cat/FocusPomodoroCard';
 import { LofiPlayer } from '@/components/music/LofiPlayer';
 import { PolaroidGallery } from '@/components/board/PolaroidGallery';
+import {
+  QuickCheckinCard,
+  type QuickComposerKind,
+} from '@/components/board/QuickCheckinCard';
 import { DailyPromptCard } from '@/components/board/DailyPromptCard';
 import { NotesAndLetters } from '@/components/board/NotesAndLetters';
 import { VoiceMemoCard } from '@/components/board/VoiceMemoCard';
@@ -172,14 +173,8 @@ import type {
   WeatherType,
 } from '@/types/catyboard';
 
-type BoardTab =
-  | 'overview'
-  | 'photos'
-  | 'notes'
-  | 'reminders'
-  | 'finance'
-  | 'calendar'
-  | 'music';
+type BoardTab = 'overview' | 'memories' | 'planner' | 'music';
+type PlannerSection = 'all' | 'reminders' | 'finance' | 'notes';
 
 const SURFACE_CLASS_BY_TEXTURE: Record<BoardTexture, string> = {
   cork: 'corkboard-surface',
@@ -198,13 +193,21 @@ export function CatyBoardApp() {
   const [selectedDate, setSelectedDate] = useState<string>(() => toLocalDateKey());
   const [theme, setTheme] = useState<ThemeMode>('sunlit');
   const [activeTab, setActiveTab] = useState<BoardTab>('overview');
-  const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
+  const [plannerSection, setPlannerSection] = useState<PlannerSection>('all');
+  const [quickComposers, setQuickComposers] = useState<
+    Record<QuickComposerKind, boolean>
+  >({
+    photo: true,
+    note: false,
+    reminder: false,
+    voice: false,
+  });
+  const [activeTrack, setActiveTrack] = useState<MusicTrack | null>(null);
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [windDownOpen, setWindDownOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [fabOpen, setFabOpen] = useState(false);
 
   const [syncStatus, setSyncStatus] = useState<string>('Đã đồng bộ ✓');
   const [incomingInvites, setIncomingInvites] = useState<BoardInvitation[]>([]);
@@ -219,6 +222,7 @@ export function CatyBoardApp() {
   const notifiedRemindersRef = useRef<Set<string>>(new Set());
   const hydratedUserIdRef = useRef<string | null>(null);
   const rememberLoginRef = useRef<boolean>(true);
+  const manualThemeToggledRef = useRef<boolean>(false);
   const pendingSignupMetaRef = useRef<{
     boardTitle: string;
     nickname: string;
@@ -229,11 +233,17 @@ export function CatyBoardApp() {
   const applyLoadedStore = useCallback(
     (loaded: CatyStoreData, emailKey: string | null) => {
       setStore(loaded);
-      setTheme(loaded.profile.defaultTheme);
+      if (!manualThemeToggledRef.current) {
+        const currentHour =
+          typeof window !== 'undefined' ? new Date().getHours() : 12;
+        const autoNight =
+          loaded.profile.defaultTheme === 'cozy-night' ||
+          currentHour >= 19 ||
+          currentHour < 5;
+        setTheme(autoNight ? 'cozy-night' : 'sunlit');
+      }
       if (loaded.syncedTrack) {
-        setActiveTrackId(loaded.syncedTrack.id);
-      } else if (loaded.tracks.length > 0) {
-        setActiveTrackId(loaded.tracks[0].id);
+        setActiveTrack(loaded.syncedTrack);
       }
       if (emailKey) {
         setActiveLocalUserEmail(emailKey, rememberLoginRef.current);
@@ -611,16 +621,6 @@ export function CatyBoardApp() {
     const timer = setInterval(checkDueReminders, 30000);
     return () => clearInterval(timer);
   }, [store]);
-
-  const activeTrack = useMemo(() => {
-    if (!store) return null;
-    if (activeTrackId) {
-      const fromList = store.tracks.find((t) => t.id === activeTrackId);
-      if (fromList) return fromList;
-      if (store.syncedTrack?.id === activeTrackId) return store.syncedTrack;
-    }
-    return store.syncedTrack ?? null;
-  }, [store, activeTrackId]);
 
   // --- User Auth Flows (Email Login + Registration + Gmail OTP Verification + Fresh Board Creation) ---
 
@@ -1241,8 +1241,8 @@ export function CatyBoardApp() {
     queueSync({ id: `voice-${id}`, kind: 'delete_voice', itemId: id });
   };
 
-  const handleSelectTrack = (trk: MusicTrack) => {
-    setActiveTrackId(trk.id);
+  const handleSelectTrack = (trk: MusicTrack | null) => {
+    setActiveTrack(trk);
     if (isDuo) {
       updateStore((prev) => ({
         ...prev,
@@ -1255,6 +1255,13 @@ export function CatyBoardApp() {
         syncedTrack: trk,
       });
     }
+  };
+
+  const handleStepMiniPlayerNext = () => {
+    if (store.tracks.length === 0) return;
+    const idx = store.tracks.findIndex((t) => t.id === activeTrack?.id);
+    const nextIdx = idx === -1 ? 0 : (idx + 1) % store.tracks.length;
+    handleSelectTrack(store.tracks[nextIdx]);
   };
 
   const handleToggleDecor = (decorId: CatDecorId) => {
@@ -1352,6 +1359,7 @@ export function CatyBoardApp() {
   };
 
   const toggleTheme = () => {
+    manualThemeToggledRef.current = true;
     const next: ThemeMode = theme === 'sunlit' ? 'cozy-night' : 'sunlit';
     setTheme(next);
     updateProfileWithSync({ defaultTheme: next });
@@ -1367,15 +1375,23 @@ export function CatyBoardApp() {
     await pushStoreToSupabase(client, cloudUser, boardId, store);
     const pulled = await pullStoreFromSupabase(client, cloudUser, boardId, store);
     applyLoadedStore(pulled, activeAccountEmail);
-    setSyncStatus('Đã đồng bộ Cloud ✓');
+    setSyncStatus('Đã đồng bộ ✓');
   };
 
   const handleSelectSearchHit = (hit: SearchHit) => {
     setSelectedDate(hit.entryDate);
-    if (hit.kind === 'photo') setActiveTab('photos');
-    else if (hit.kind === 'note' || hit.kind === 'voice') setActiveTab('notes');
-    else if (hit.kind === 'reminder') setActiveTab('reminders');
-    else if (hit.kind === 'finance') setActiveTab('finance');
+    if (hit.kind === 'photo') {
+      setActiveTab('memories');
+    } else if (hit.kind === 'note' || hit.kind === 'voice') {
+      setPlannerSection('notes');
+      setActiveTab('planner');
+    } else if (hit.kind === 'reminder') {
+      setPlannerSection('reminders');
+      setActiveTab('planner');
+    } else if (hit.kind === 'finance') {
+      setPlannerSection('finance');
+      setActiveTab('planner');
+    }
   };
 
   const isNight = theme === 'cozy-night';
@@ -1383,20 +1399,17 @@ export function CatyBoardApp() {
     SURFACE_CLASS_BY_TEXTURE[store.profile.boardTexture || 'cork'];
 
   const navTabs: { id: BoardTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Bảng Ngày', icon: <LayoutGrid className="h-4 w-4" /> },
-    { id: 'photos', label: 'Ảnh', icon: <Camera className="h-4 w-4" /> },
-    { id: 'notes', label: 'Note & Thư', icon: <NotebookPen className="h-4 w-4" /> },
-    { id: 'reminders', label: 'Nhắc nhở', icon: <CheckSquare className="h-4 w-4" /> },
-    { id: 'finance', label: 'Tài chính', icon: <Wallet className="h-4 w-4" /> },
-    { id: 'calendar', label: 'Lịch Ảnh', icon: <CalendarDays className="h-4 w-4" /> },
-    { id: 'music', label: 'Nhạc', icon: <Music className="h-4 w-4" /> },
+    { id: 'overview', label: 'Hôm nay', icon: <LayoutGrid className="h-4 w-4" /> },
+    { id: 'memories', label: 'Kỷ niệm', icon: <CalendarDays className="h-4 w-4" /> },
+    { id: 'planner', label: 'Sổ tay', icon: <NotebookPen className="h-4 w-4" /> },
+    { id: 'music', label: 'Phòng Nhạc', icon: <Music className="h-4 w-4" /> },
   ];
 
   return (
     <div
-      className={`min-h-screen pb-24 transition-colors md:pb-8 ${
-        isNight ? 'theme-cozy-night bg-[#1e1713]' : 'bg-[#efe4d2]'
-      }`}
+      className={`min-h-screen transition-colors md:pb-8 ${
+        activeTrack ? 'pb-36' : 'pb-24'
+      } ${isNight ? 'theme-cozy-night bg-[#1e1713]' : 'bg-[#efe4d2]'}`}
     >
       {heartToast && (
         <div className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-2xl border-2 border-[#f0b4bf] bg-[#fff5f7] px-4 py-2.5 text-xs font-extrabold text-[#8a3240] shadow-xl animate-bounce">
@@ -1413,8 +1426,8 @@ export function CatyBoardApp() {
               <span className="font-extrabold">
                 💌{' '}
                 {incomingInvites[0]
-                  ? `${incomingInvites[0].inviterNickname} đã mời bạn dùng chung bảng "${incomingInvites[0].boardTitle || DEFAULT_BOARD_TITLE}"!`
-                  : `Bạn có lời mời tham gia bảng chung (Mã: ${urlInviteCode})`}
+                  ? `${incomingInvites[0].inviterNickname} mời bạn dùng chung bảng "${incomingInvites[0].boardTitle || DEFAULT_BOARD_TITLE}"!`
+                  : `Lời mời tham gia bảng chung (${urlInviteCode})`}
               </span>
             </div>
             <button
@@ -1426,7 +1439,7 @@ export function CatyBoardApp() {
               }
               className="rounded-xl bg-[#3a75a8] px-3.5 py-1.5 font-extrabold text-white shadow-xs hover:bg-[#2f6390]"
             >
-              Chấp nhận vào bảng chung
+              Chấp nhận
             </button>
           </div>
         )}
@@ -1444,8 +1457,8 @@ export function CatyBoardApp() {
           />
           <PressedFlower className="pointer-events-none absolute bottom-3 right-4 hidden opacity-85 lg:block" />
 
-          {/* Top Scrapbook Header */}
-          <header className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          {/* Clean, Uncluttered Top Header */}
+          <header className="mb-4 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <PuffyWord
                 text={(store.profile.boardTitle || DEFAULT_BOARD_TITLE).toUpperCase()}
@@ -1479,16 +1492,10 @@ export function CatyBoardApp() {
                 ) : (
                   <>
                     <UserPlus className="h-3.5 w-3.5" />
-                    <span>Mời người thứ 2</span>
+                    <span>Mời bạn</span>
                   </>
                 )}
               </button>
-
-              {cloudUser && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#3d7c57] px-2.5 py-1 text-[11px] font-bold text-white">
-                  <Cloud className="h-3 w-3" /> {syncStatus}
-                </span>
-              )}
 
               <span
                 title="Chuỗi ngày check-in liên tiếp"
@@ -1497,6 +1504,12 @@ export function CatyBoardApp() {
                 <Flame className="h-3 w-3" /> {streakCount} ngày
               </span>
 
+              {cloudUser && (
+                <span className="hidden items-center gap-1 rounded-full bg-[#3d7c57] px-2.5 py-1 text-[11px] font-bold text-white sm:inline-flex">
+                  <Cloud className="h-3 w-3" /> {syncStatus}
+                </span>
+              )}
+
               {isDevAdminEmail(activeAccountEmail) && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-[#4a3425] px-2.5 py-1 text-[10px] font-extrabold text-[#ffd978] shadow-xs">
                   🛠️ DEV
@@ -1504,8 +1517,8 @@ export function CatyBoardApp() {
               )}
             </div>
 
-            {/* Date Picker + Quick Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2">
+            {/* Date Picker + Streamlined Utility Actions */}
+            <div className="flex flex-wrap items-center gap-1.5">
               <div
                 className={`flex items-center gap-1 rounded-2xl border px-2 py-1 shadow-xs ${
                   isNight
@@ -1541,71 +1554,56 @@ export function CatyBoardApp() {
               <button
                 type="button"
                 onClick={() => setSearchOpen(true)}
-                title="Tìm kiếm toàn bảng (Cmd + K)"
-                className={`inline-flex items-center gap-1 rounded-2xl border px-2.5 py-2 text-xs font-bold shadow-xs ${
+                title="Tìm kiếm (Cmd + K)"
+                className={`inline-flex items-center rounded-2xl border p-2 text-xs font-bold shadow-xs ${
                   isNight
                     ? 'border-[#614835] bg-[#2c2119] text-[#f4e8d6]'
                     : 'border-[#c69d70] bg-[#fbf5e9] text-[#382619]'
                 }`}
               >
-                <Search className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Tìm</span>
+                <Search className="h-4 w-4" />
               </button>
 
               <button
                 type="button"
                 onClick={toggleTheme}
-                title="Đổi chế độ Sáng Nắng / Đêm Mưa Cozy"
-                className={`inline-flex items-center gap-1.5 rounded-2xl border px-3 py-2 text-xs font-extrabold shadow-xs transition ${
+                title="Đổi giao diện Sáng / Đêm"
+                className={`inline-flex items-center rounded-2xl border p-2 text-xs font-extrabold shadow-xs transition ${
                   isNight
                     ? 'border-[#7c5d43] bg-[#3b2c22] text-[#ffe8ad]'
                     : 'border-[#c69d70] bg-[#fbf5e9] text-[#382619]'
                 }`}
               >
                 {isNight ? (
-                  <>
-                    <Sun className="h-3.5 w-3.5 text-[#ffd978]" /> Sáng hơn
-                  </>
+                  <Sun className="h-4 w-4 text-[#ffd978]" />
                 ) : (
-                  <>
-                    <Moon className="h-3.5 w-3.5 text-[#3a75a8]" /> Cozy hơn
-                  </>
+                  <Moon className="h-4 w-4 text-[#3a75a8]" />
                 )}
               </button>
 
               <button
                 type="button"
                 onClick={() => setWindDownOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-2xl bg-[#b95567] px-3 py-2 text-xs font-extrabold text-white shadow-xs transition hover:bg-[#9f4555]"
+                title="Tổng kết nhanh cuối ngày"
+                className="inline-flex items-center gap-1 rounded-2xl bg-[#b95567] px-2.5 py-2 text-xs font-extrabold text-white shadow-xs transition hover:bg-[#9f4555]"
               >
                 <MoonStar className="h-3.5 w-3.5" />
-                Chốt 15s
+                <span className="hidden sm:inline">Chốt ngày</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setSnapshotOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-2xl bg-[#4a3425] px-3.5 py-2 text-xs font-extrabold text-[#fdf7ed] shadow-sm transition hover:opacity-90"
+                className="inline-flex items-center gap-1 rounded-2xl bg-[#4a3425] px-3 py-2 text-xs font-extrabold text-[#fdf7ed] shadow-sm transition hover:opacity-90"
               >
                 <Sparkles className="h-3.5 w-3.5 text-[#f7dc88]" />
-                Báo cáo ngày
+                <span>Xuất thẻ ngày</span>
               </button>
-
-              <Link
-                href="/widget"
-                className={`hidden rounded-2xl border px-3 py-2 text-xs font-bold shadow-xs sm:inline-flex ${
-                  isNight
-                    ? 'border-[#614835] bg-[#2c2119] text-[#f4e8d6]'
-                    : 'border-[#c69d70] bg-[#fbf5e9] text-[#382619]'
-                }`}
-              >
-                Widget
-              </Link>
 
               <button
                 type="button"
                 onClick={() => setSettingsOpen(true)}
-                aria-label="Cài đặt cá nhân"
+                aria-label="Cài đặt"
                 className={`rounded-2xl border p-2 shadow-xs ${
                   isNight
                     ? 'border-[#614835] bg-[#2c2119] text-[#f4e8d6]'
@@ -1619,31 +1617,38 @@ export function CatyBoardApp() {
 
           {/* Main 2-Column Studio Grid */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-            {/* Left Desk Column */}
+            {/* Left Desk Column (Music Studio & Cat Window — stays mounted so music never interrupts!) */}
             <aside
               className={`space-y-4 lg:col-span-4 ${
                 activeTab === 'music' ? 'block' : 'hidden lg:block'
               }`}
             >
-              <CatCompanion
-                catName={store.profile.catName}
-                partnerCatName={store.profile.partnerCatName}
-                catStyle={store.profile.catStyle}
-                mood={dayEntry.mood}
-                weather={dayEntry.weather}
-                theme={theme}
-                isPlayingMusic={Boolean(activeTrack)}
-                completedCount={completedRemindersCount}
-                totalCount={dayReminders.length}
-                fishPoints={fishPoints}
-                activeDecor={store.profile.activeDecor}
-                onToggleDecor={handleToggleDecor}
-                sharing={store.sharing}
-                partnerOnline={partnerOnline}
-                onSendHeartPing={isDuo ? handleSendHeartPing : undefined}
-                onChangeMood={(mood: CatMood) => updateDayEntry({ mood })}
-                onChangeWeather={(weather: WeatherType) => updateDayEntry({ weather })}
-              />
+              <div className="hidden lg:block">
+                <CatCompanion
+                  catName={store.profile.catName}
+                  partnerCatName={store.profile.partnerCatName}
+                  catStyle={store.profile.catStyle}
+                  mood={dayEntry.mood}
+                  weather={dayEntry.weather}
+                  theme={theme}
+                  entryDate={selectedDate}
+                  isPlayingMusic={Boolean(activeTrack)}
+                  completedCount={completedRemindersCount}
+                  totalCount={dayReminders.length}
+                  fishPoints={fishPoints}
+                  activeDecor={store.profile.activeDecor}
+                  onToggleDecor={handleToggleDecor}
+                  sharing={store.sharing}
+                  partnerOnline={partnerOnline}
+                  onSendHeartPing={isDuo ? handleSendHeartPing : undefined}
+                  onChangeMood={(mood: CatMood) =>
+                    updateDayEntry({ mood, checkedIn: true })
+                  }
+                  onChangeWeather={(weather: WeatherType) =>
+                    updateDayEntry({ weather })
+                  }
+                />
+              </div>
 
               <LofiPlayer
                 tracks={store.tracks}
@@ -1658,11 +1663,25 @@ export function CatyBoardApp() {
                   }));
                   queueSync({ id: `trk-${trk.id}`, kind: 'upsert_track', track: trk });
                 }}
+                onUpdateTrack={(updated: MusicTrack) => {
+                  updateStore((prev) => ({
+                    ...prev,
+                    tracks: prev.tracks.map((t) =>
+                      t.id === updated.id ? updated : t
+                    ),
+                  }));
+                  queueSync({
+                    id: `trk-${updated.id}`,
+                    kind: 'upsert_track',
+                    track: updated,
+                  });
+                }}
                 onRemoveTrack={(id) => {
                   updateStore((prev) => ({
                     ...prev,
                     tracks: prev.tracks.filter((t) => t.id !== id),
                   }));
+                  if (activeTrack?.id === id) setActiveTrack(null);
                   queueSync({ id: `trk-${id}`, kind: 'delete_track', itemId: id });
                 }}
                 onPinSongToDay={(trk) =>
@@ -1671,6 +1690,7 @@ export function CatyBoardApp() {
                     songArtist: trk.artistOrChannel,
                     songSource: trk.source,
                     songUrl: trk.url,
+                    checkedIn: true,
                   })
                 }
                 theme={theme}
@@ -1686,29 +1706,40 @@ export function CatyBoardApp() {
             </aside>
 
             {/* Right Corkboard Content Column */}
-            <main className="space-y-4 lg:col-span-8">
+            <main
+              className={`space-y-4 lg:col-span-8 ${
+                activeTab === 'music' ? 'hidden lg:block' : 'block'
+              }`}
+            >
+              {/* Desktop 3-Tab Switcher (Music is already docked on the left column on Desktop) */}
               <nav className="hidden flex-wrap gap-1.5 md:flex">
                 {navTabs
                   .filter((t) => t.id !== 'music')
-                  .map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`inline-flex items-center gap-1.5 rounded-2xl px-3.5 py-2 text-xs font-extrabold shadow-xs transition ${
-                        activeTab === tab.id
-                          ? 'bg-[#3a75a8] text-white shadow-sm'
-                          : isNight
-                            ? 'bg-[#2c2119]/90 text-[#efe2cf] hover:bg-[#3b2d22]'
-                            : 'bg-[#fbf5e9] text-[#463122] hover:bg-[#f2e6d3]'
-                      }`}
-                    >
-                      {tab.icon}
-                      {tab.label}
-                    </button>
-                  ))}
+                  .map((tab) => {
+                    const selected =
+                      activeTab === tab.id ||
+                      (activeTab === 'music' && tab.id === 'overview');
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`inline-flex items-center gap-1.5 rounded-2xl px-4 py-2 text-xs font-extrabold shadow-xs transition ${
+                          selected
+                            ? 'bg-[#3a75a8] text-white shadow-sm'
+                            : isNight
+                              ? 'bg-[#2c2119]/90 text-[#efe2cf] hover:bg-[#3b2d22]'
+                              : 'bg-[#fbf5e9] text-[#463122] hover:bg-[#f2e6d3]'
+                        }`}
+                      >
+                        {tab.icon}
+                        {tab.label}
+                      </button>
+                    );
+                  })}
               </nav>
 
+              {/* Mobile Cat Window + Daily Fortune on Today View */}
               <div className="lg:hidden">
                 {activeTab === 'overview' && (
                   <CatCompanion
@@ -1718,14 +1749,19 @@ export function CatyBoardApp() {
                     mood={dayEntry.mood}
                     weather={dayEntry.weather}
                     theme={theme}
+                    entryDate={selectedDate}
                     isPlayingMusic={Boolean(activeTrack)}
                     completedCount={completedRemindersCount}
                     totalCount={dayReminders.length}
                     fishPoints={fishPoints}
                     activeDecor={store.profile.activeDecor}
+                    onToggleDecor={handleToggleDecor}
                     sharing={store.sharing}
                     partnerOnline={partnerOnline}
-                    onChangeMood={(mood: CatMood) => updateDayEntry({ mood })}
+                    onSendHeartPing={isDuo ? handleSendHeartPing : undefined}
+                    onChangeMood={(mood: CatMood) =>
+                      updateDayEntry({ mood, checkedIn: true })
+                    }
                     onChangeWeather={(weather: WeatherType) =>
                       updateDayEntry({ weather })
                     }
@@ -1734,59 +1770,85 @@ export function CatyBoardApp() {
                 )}
               </div>
 
-              {activeTab === 'overview' && (
-                <div className="space-y-5">
-                  <div className="grid grid-cols-3 gap-2.5">
+              {/* TAB 1: HÔM NAY (Clean, Breathable Desk) */}
+              {(activeTab === 'overview' || activeTab === 'music') && (
+                <div className="space-y-4">
+                  {/* Unified 2-Second Check-in & Quick Action Bar */}
+                  <QuickCheckinCard
+                    dayEntry={dayEntry}
+                    theme={theme}
+                    activeComposers={quickComposers}
+                    onCheckInMood={(mood) =>
+                      updateDayEntry({ mood, checkedIn: true })
+                    }
+                    onSaveFridgeNote={(dailyQuote) =>
+                      updateDayEntry({ dailyQuote, checkedIn: true })
+                    }
+                    onToggleComposer={(kind) =>
+                      setQuickComposers((prev) => ({
+                        ...prev,
+                        [kind]: !prev[kind],
+                      }))
+                    }
+                    onOpenFinanceTab={() => {
+                      setPlannerSection('finance');
+                      setActiveTab('planner');
+                    }}
+                  />
+
+                  {/* Compact Summary Strip */}
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
-                      onClick={() => setActiveTab('photos')}
-                      className={`rounded-2xl border p-3 text-left shadow-xs transition hover:-translate-y-0.5 ${
+                      onClick={() => setActiveTab('memories')}
+                      className={`rounded-2xl border px-3 py-2 text-left shadow-2xs transition ${
                         isNight
                           ? 'border-[#614835] bg-[#2c2119] text-[#f4e8d6]'
                           : 'border-[#d6be9c] bg-[#fbf5e9] text-[#382619]'
                       }`}
                     >
-                      <div className="text-[11px] font-bold opacity-75">
-                        📸 Ảnh Polaroid
-                      </div>
-                      <div className="mt-0.5 text-base font-extrabold">
+                      <div className="text-[10px] font-bold opacity-75">📸 Ảnh</div>
+                      <div className="text-sm font-extrabold">
                         {dayPhotos.length} tấm
                       </div>
                     </button>
                     <button
                       type="button"
-                      onClick={() => setActiveTab('reminders')}
-                      className={`rounded-2xl border p-3 text-left shadow-xs transition hover:-translate-y-0.5 ${
+                      onClick={() => {
+                        setPlannerSection('reminders');
+                        setActiveTab('planner');
+                      }}
+                      className={`rounded-2xl border px-3 py-2 text-left shadow-2xs transition ${
                         isNight
                           ? 'border-[#46684f] bg-[#213125] text-[#d6f3de]'
                           : 'border-[#b7d9bf] bg-[#eef7f0] text-[#214f2d]'
                       }`}
                     >
-                      <div className="text-[11px] font-bold opacity-80">
-                        ✅ Đã làm
-                      </div>
-                      <div className="mt-0.5 text-base font-extrabold">
+                      <div className="text-[10px] font-bold opacity-80">✅ Việc làm</div>
+                      <div className="text-sm font-extrabold">
                         {completedRemindersCount}/{dayReminders.length}
                       </div>
                     </button>
                     <button
                       type="button"
-                      onClick={() => setActiveTab('finance')}
-                      className={`rounded-2xl border p-3 text-left shadow-xs transition hover:-translate-y-0.5 ${
+                      onClick={() => {
+                        setPlannerSection('finance');
+                        setActiveTab('planner');
+                      }}
+                      className={`rounded-2xl border px-3 py-2 text-left shadow-2xs transition ${
                         isNight
                           ? 'border-[#6f4448] bg-[#362325] text-[#f8d5d8]'
                           : 'border-[#e8bec2] bg-[#fdf1f2] text-[#732d34]'
                       }`}
                     >
-                      <div className="text-[11px] font-bold opacity-80">
-                        💸 Chi hôm nay
-                      </div>
-                      <div className="mt-0.5 truncate text-base font-extrabold">
+                      <div className="text-[10px] font-bold opacity-80">💸 Chi hôm nay</div>
+                      <div className="truncate text-sm font-extrabold">
                         {formatVnd(dayExpense)}
                       </div>
                     </button>
                   </div>
 
+                  {/* Throwback Memory Card */}
                   {throwbackPhoto && (
                     <button
                       type="button"
@@ -1801,6 +1863,7 @@ export function CatyBoardApp() {
                         <img
                           src={throwbackPhoto.dataUrl}
                           alt={throwbackPhoto.caption}
+                          loading="lazy"
                           className="h-11 w-14 shrink-0 rounded-md object-cover ring-2 ring-white shadow-xs"
                         />
                         <div className="min-w-0">
@@ -1819,6 +1882,80 @@ export function CatyBoardApp() {
                     </button>
                   )}
 
+                  {/* Polaroid Section (shown when photos exist or composer toggled) */}
+                  {(dayPhotos.length > 0 || quickComposers.photo) && (
+                    <PolaroidGallery
+                      entryDate={selectedDate}
+                      photos={dayPhotos}
+                      sharing={store.sharing}
+                      fontStyle={store.profile.fontStyle}
+                      theme={theme}
+                      onAddPhoto={handleAddPhoto}
+                      onUpdatePhoto={handleUpdatePhoto}
+                      onDeletePhoto={handleDeletePhoto}
+                    />
+                  )}
+
+                  {/* Voice Memos (only shown on Today when memos exist or toggled open) */}
+                  {(dayVoices.length > 0 || quickComposers.voice) && (
+                    <VoiceMemoCard
+                      entryDate={selectedDate}
+                      memos={dayVoices}
+                      sharing={store.sharing}
+                      theme={theme}
+                      onAddMemo={handleAddVoiceMemo}
+                      onDeleteMemo={handleDeleteVoiceMemo}
+                    />
+                  )}
+
+                  {/* Notes & Letters (only shown on Today when notes exist or toggled open) */}
+                  {(dayNotes.length > 0 || quickComposers.note) && (
+                    <div
+                      className={
+                        store.profile.fontStyle === 'handwriting'
+                          ? 'font-handwriting-soft'
+                          : ''
+                      }
+                    >
+                      <NotesAndLetters
+                        entryDate={selectedDate}
+                        notes={dayNotes}
+                        sharing={store.sharing}
+                        journalPin={store.profile.journalPin}
+                        theme={theme}
+                        onAddNote={handleAddNote}
+                        onUpdateNote={handleUpdateNote}
+                        onDeleteNote={handleDeleteNote}
+                      />
+                    </div>
+                  )}
+
+                  {/* Reminders (only shown on Today when tasks exist or toggled open) */}
+                  {(dayReminders.length > 0 || quickComposers.reminder) && (
+                    <RemindersPanel
+                      entryDate={selectedDate}
+                      reminders={dayReminders}
+                      sharing={store.sharing}
+                      theme={theme}
+                      onAddReminder={handleAddReminder}
+                      onToggleReminder={handleToggleReminder}
+                      onDeleteReminder={handleDeleteReminder}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* TAB 2: KỶ NIỆM (Album Lịch Tháng + Ảnh Ngày Đang Chọn) */}
+              {activeTab === 'memories' && (
+                <div className="space-y-4">
+                  <ScrapbookCalendar
+                    selectedDate={selectedDate}
+                    store={store}
+                    theme={theme}
+                    onSelectDate={(dateKey) => {
+                      setSelectedDate(dateKey);
+                    }}
+                  />
                   <PolaroidGallery
                     entryDate={selectedDate}
                     photos={dayPhotos}
@@ -1829,195 +1966,157 @@ export function CatyBoardApp() {
                     onUpdatePhoto={handleUpdatePhoto}
                     onDeletePhoto={handleDeletePhoto}
                   />
-
-                  <DailyPromptCard
-                    entryDate={selectedDate}
-                    sharing={store.sharing}
-                    answers={dayEntry.promptAnswers}
-                    theme={theme}
-                    onSaveAnswer={(promptAnswers) =>
-                      updateDayEntry({ promptAnswers })
-                    }
-                  />
-
-                  <VoiceMemoCard
-                    entryDate={selectedDate}
-                    memos={dayVoices}
-                    sharing={store.sharing}
-                    theme={theme}
-                    onAddMemo={handleAddVoiceMemo}
-                    onDeleteMemo={handleDeleteVoiceMemo}
-                  />
-
-                  <div
-                    className={
-                      store.profile.fontStyle === 'handwriting'
-                        ? 'font-handwriting-soft'
-                        : ''
-                    }
-                  >
-                    <NotesAndLetters
-                      entryDate={selectedDate}
-                      notes={dayNotes}
-                      sharing={store.sharing}
-                      journalPin={store.profile.journalPin}
-                      theme={theme}
-                      onAddNote={handleAddNote}
-                      onUpdateNote={handleUpdateNote}
-                      onDeleteNote={handleDeleteNote}
-                    />
-                  </div>
-
-                  <RemindersPanel
-                    entryDate={selectedDate}
-                    reminders={dayReminders}
-                    sharing={store.sharing}
-                    theme={theme}
-                    onAddReminder={handleAddReminder}
-                    onToggleReminder={handleToggleReminder}
-                    onDeleteReminder={handleDeleteReminder}
-                  />
                 </div>
               )}
 
-              {activeTab === 'photos' && (
-                <PolaroidGallery
-                  entryDate={selectedDate}
-                  photos={dayPhotos}
-                  sharing={store.sharing}
-                  fontStyle={store.profile.fontStyle}
-                  theme={theme}
-                  onAddPhoto={handleAddPhoto}
-                  onUpdatePhoto={handleUpdatePhoto}
-                  onDeletePhoto={handleDeletePhoto}
-                />
-              )}
-
-              {activeTab === 'notes' && (
+              {/* TAB 3: SỔ TAY (Việc làm + Chi tiêu + Ghi chú & Tâm thư) */}
+              {activeTab === 'planner' && (
                 <div className="space-y-4">
-                  <VoiceMemoCard
-                    entryDate={selectedDate}
-                    memos={dayVoices}
-                    sharing={store.sharing}
-                    theme={theme}
-                    onAddMemo={handleAddVoiceMemo}
-                    onDeleteMemo={handleDeleteVoiceMemo}
-                  />
-                  <div
-                    className={
-                      store.profile.fontStyle === 'handwriting'
-                        ? 'font-handwriting-soft'
-                        : ''
-                    }
-                  >
-                    <NotesAndLetters
-                      entryDate={selectedDate}
-                      notes={dayNotes}
-                      sharing={store.sharing}
-                      journalPin={store.profile.journalPin}
-                      theme={theme}
-                      onAddNote={handleAddNote}
-                      onUpdateNote={handleUpdateNote}
-                      onDeleteNote={handleDeleteNote}
-                    />
+                  <div className="flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        { id: 'all', label: 'Tất cả' },
+                        {
+                          id: 'reminders',
+                          label: `✅ Nhắc việc (${dayReminders.length})`,
+                        },
+                        { id: 'finance', label: '💸 Chi tiêu & Hũ tiết kiệm' },
+                        {
+                          id: 'notes',
+                          label: `📝 Note & Thư (${dayNotes.length})`,
+                        },
+                      ] as { id: PlannerSection; label: string }[]
+                    ).map((sec) => (
+                      <button
+                        key={sec.id}
+                        type="button"
+                        onClick={() => setPlannerSection(sec.id)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-extrabold transition ${
+                          plannerSection === sec.id
+                            ? 'bg-[#3d7c57] text-white shadow-2xs'
+                            : isNight
+                              ? 'bg-[#2c2119] text-[#efe2cf]'
+                              : 'bg-[#fbf5e9] text-[#463122]'
+                        }`}
+                      >
+                        {sec.label}
+                      </button>
+                    ))}
                   </div>
+
+                  {(plannerSection === 'all' || plannerSection === 'reminders') && (
+                    <RemindersPanel
+                      entryDate={selectedDate}
+                      reminders={dayReminders}
+                      sharing={store.sharing}
+                      theme={theme}
+                      onAddReminder={handleAddReminder}
+                      onToggleReminder={handleToggleReminder}
+                      onDeleteReminder={handleDeleteReminder}
+                    />
+                  )}
+
+                  {(plannerSection === 'all' || plannerSection === 'finance') && (
+                    <FinancePanel
+                      entryDate={selectedDate}
+                      dayEntries={dayFinance}
+                      allFinance={store.finance}
+                      monthlyBudget={store.profile.monthlyBudget}
+                      savingGoal={store.profile.savingGoal}
+                      sharing={store.sharing}
+                      theme={theme}
+                      onAddFinance={handleAddFinance}
+                      onDeleteFinance={handleDeleteFinance}
+                      onUpdateSavingGoal={(savingGoal: SavingGoal) =>
+                        updateProfileWithSync({ savingGoal })
+                      }
+                    />
+                  )}
+
+                  {(plannerSection === 'all' || plannerSection === 'notes') && (
+                    <div className="space-y-4">
+                      <DailyPromptCard
+                        entryDate={selectedDate}
+                        sharing={store.sharing}
+                        answers={dayEntry.promptAnswers}
+                        theme={theme}
+                        onSaveAnswer={(promptAnswers) =>
+                          updateDayEntry({ promptAnswers, checkedIn: true })
+                        }
+                      />
+                      <VoiceMemoCard
+                        entryDate={selectedDate}
+                        memos={dayVoices}
+                        sharing={store.sharing}
+                        theme={theme}
+                        onAddMemo={handleAddVoiceMemo}
+                        onDeleteMemo={handleDeleteVoiceMemo}
+                      />
+                      <div
+                        className={
+                          store.profile.fontStyle === 'handwriting'
+                            ? 'font-handwriting-soft'
+                            : ''
+                        }
+                      >
+                        <NotesAndLetters
+                          entryDate={selectedDate}
+                          notes={dayNotes}
+                          sharing={store.sharing}
+                          journalPin={store.profile.journalPin}
+                          theme={theme}
+                          onAddNote={handleAddNote}
+                          onUpdateNote={handleUpdateNote}
+                          onDeleteNote={handleDeleteNote}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {activeTab === 'reminders' && (
-                <RemindersPanel
-                  entryDate={selectedDate}
-                  reminders={dayReminders}
-                  sharing={store.sharing}
-                  theme={theme}
-                  onAddReminder={handleAddReminder}
-                  onToggleReminder={handleToggleReminder}
-                  onDeleteReminder={handleDeleteReminder}
-                />
-              )}
-
-              {activeTab === 'finance' && (
-                <FinancePanel
-                  entryDate={selectedDate}
-                  dayEntries={dayFinance}
-                  allFinance={store.finance}
-                  monthlyBudget={store.profile.monthlyBudget}
-                  savingGoal={store.profile.savingGoal}
-                  sharing={store.sharing}
-                  theme={theme}
-                  onAddFinance={handleAddFinance}
-                  onDeleteFinance={handleDeleteFinance}
-                  onUpdateSavingGoal={(savingGoal: SavingGoal) =>
-                    updateProfileWithSync({ savingGoal })
-                  }
-                />
-              )}
-
-              {activeTab === 'calendar' && (
-                <ScrapbookCalendar
-                  selectedDate={selectedDate}
-                  store={store}
-                  theme={theme}
-                  onSelectDate={(dateKey) => {
-                    setSelectedDate(dateKey);
-                    setActiveTab('overview');
-                  }}
-                />
               )}
             </main>
           </div>
         </div>
       </div>
 
-      {/* Mobile iPhone 3-Second Quick-Capture FAB (+) */}
-      <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-2 md:hidden">
-        {fabOpen && (
-          <div className="flex flex-col items-end gap-2">
+      {/* Mobile Floating Mini-Player Strip (stays visible while browsing Today, Memories, or Planner!) */}
+      {activeTrack && activeTab !== 'music' && (
+        <div className="fixed inset-x-3 bottom-16 z-40 flex items-center justify-between gap-2 rounded-2xl border border-[#5e4635] bg-[#221913]/95 px-3 py-2 text-xs text-[#cbf5d5] shadow-xl backdrop-blur-md md:hidden">
+          <button
+            type="button"
+            onClick={() => setActiveTab('music')}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <Disc3
+              className="h-4 w-4 shrink-0 animate-spin text-[#7ec3f7]"
+              style={{ animationDuration: '4s' }}
+            />
+            <span className="truncate font-bold">{activeTrack.title}</span>
+          </button>
+          <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('photos');
-                setFabOpen(false);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-[#3a75a8] px-3.5 py-2 text-xs font-extrabold text-white shadow-lg"
+              onClick={handleStepMiniPlayerNext}
+              aria-label="Bài tiếp theo"
+              className="rounded-lg bg-white/10 p-1.5 text-white hover:bg-white/20"
             >
-              <Camera className="h-3.5 w-3.5" /> Chụp Polaroid
+              <SkipForward className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('finance');
-                setFabOpen(false);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-[#3d7c57] px-3.5 py-2 text-xs font-extrabold text-white shadow-lg"
+              onClick={() => handleSelectTrack(null)}
+              aria-label="Dừng nhạc"
+              className="rounded-lg bg-[#b95567] p-1.5 text-white"
             >
-              <Wallet className="h-3.5 w-3.5" /> Ghi tiền nhanh
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('notes');
-                setFabOpen(false);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-[#b95567] px-3.5 py-2 text-xs font-extrabold text-white shadow-lg"
-            >
-              <Mic className="h-3.5 w-3.5" /> Thu âm / Note
+              <Square className="h-3 w-3 fill-current" />
             </button>
           </div>
-        )}
-        <button
-          type="button"
-          onClick={() => setFabOpen((v) => !v)}
-          aria-label="Ghi nhanh"
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-[#4a3425] text-[#fdf7ed] shadow-xl ring-2 ring-[#f5ebd9]"
-        >
-          {fabOpen ? <X className="h-5 w-5" /> : <Plus className="h-6 w-6" />}
-        </button>
-      </div>
+        </div>
+      )}
 
-      {/* iPhone / Mobile Bottom Sticky Navigation Bar */}
+      {/* Clean 4-Tab Mobile Bottom Sticky Navigation Bar */}
       <nav
-        className={`fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t px-1 py-2 backdrop-blur-md md:hidden ${
+        className={`fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 gap-1 border-t px-2 py-2 backdrop-blur-md md:hidden ${
           isNight
             ? 'border-[#4a3728] bg-[#241b14]/95 text-[#f4e8d6]'
             : 'border-[#d6bc98] bg-[#fbf5e9]/95 text-[#382619]'
@@ -2028,9 +2127,9 @@ export function CatyBoardApp() {
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
-            className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1 text-[10px] font-bold transition ${
+            className={`flex flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-bold transition ${
               activeTab === tab.id
-                ? 'bg-[#3a75a8] text-white'
+                ? 'bg-[#3a75a8] text-white shadow-2xs'
                 : 'opacity-75'
             }`}
           >
@@ -2104,7 +2203,10 @@ export function CatyBoardApp() {
           sharing={store.sharing}
           onUpdateDay={updateDayEntry}
           onAddQuickExpense={handleAddFinance}
-          onOpenCamera={() => setActiveTab('photos')}
+          onOpenCamera={() => {
+            setQuickComposers((prev) => ({ ...prev, photo: true }));
+            setActiveTab('overview');
+          }}
           onOpenSnapshot={() => setSnapshotOpen(true)}
         />
       )}

@@ -50,13 +50,80 @@ export function formatFilmDateStamp(entryDate: string): string {
   return `'${yy} ${mm || '01'} ${dd || '01'}`;
 }
 
+export interface CatFortuneSlip {
+  quote: string;
+  microHint: string;
+}
+
+export const DAILY_CAT_FORTUNES_VI: CatFortuneSlip[] = [
+  {
+    quote: 'Mọi thứ không cần hoàn hảo ngay hôm nay, chỉ cần ấm áp là đủ.',
+    microHint: 'Thử chụp lại góc bàn hoặc ly nước trước mặt bạn lúc này nhé ☕',
+  },
+  {
+    quote: 'Uống một ngụm nước mát, thả lỏng hai vai xuống một chút nào.',
+    microHint: 'Bật một bản nhạc nhẹ và nghỉ mắt 2 phút nha 🐾',
+  },
+  {
+    quote: 'Một bước nhỏ xíu hôm nay vẫn tốt hơn đứng yên tại chỗ.',
+    microHint: 'Chọn ra đúng 1 việc nhỏ nhất để làm xong hôm nay ✅',
+  },
+  {
+    quote: 'Hôm nay bầu trời có màu rất riêng, nhớ ngẩng lên nhìn thử một lát.',
+    microHint: 'Chụp nhanh một tấm bầu trời ghim vào bảng ngày hôm nay 🌤️',
+  },
+  {
+    quote: 'Những ngày bình thường êm ả thực ra lại là những ngày đáng nhớ nhất.',
+    microHint: 'Ghi lại 1 dòng ngắn về điều làm bạn thấy dễ chịu hôm nay 📝',
+  },
+  {
+    quote: 'Đừng quên tự thưởng cho mình một món ngon sau giờ làm mệt nhé.',
+    microHint: 'Ghi nhẹ khoản tự thưởng hôm nay vào sổ ví 🍰',
+  },
+  {
+    quote: 'Có người đang âm thầm quý mến sự dịu dàng của bạn đấy.',
+    microHint: 'Gửi một lời nhắn nhỏ hoặc trái tim cho người bạn thương 💌',
+  },
+  {
+    quote: 'Chậm lại một nhịp không phải là trễ, mà là để đi đường dài đỡ mệt.',
+    microHint: 'Thử bật tiếng mưa rơi nho nhỏ khi ngồi học hoặc làm việc 🌧️',
+  },
+  {
+    quote: 'Giấc ngủ ngon tối nay quan trọng hơn những chuyện chưa kịp nghĩ xong.',
+    microHint: 'Tối nay thử hẹn giờ tắt nhạc 15 phút trước khi đi ngủ nhé 🌙',
+  },
+  {
+    quote: 'Niềm vui nhỏ nhặt gom lại mỗi ngày sẽ thành một mùa thật đẹp.',
+    microHint: 'Ghim bài hát bạn đang thích nhất hôm nay lên bảng 🎧',
+  },
+  {
+    quote: 'Bạn đã cố gắng nhiều hơn bạn tự nghĩ về mình rồi đó.',
+    microHint: 'Viết 1 câu tự khen bản thân vào mẩu giấy nhớ hôm nay ✨',
+  },
+  {
+    quote: 'Một tách trà ấm và một bản piano đủ làm dịu cả buổi chiều bận rộn.',
+    microHint: 'Mở kệ nhạc Piano & Chill nghe thử 1 bài mới nhé 🎹',
+  },
+];
+
+export function getDailyCatFortune(entryDate: string): CatFortuneSlip {
+  let hash = 7;
+  for (let i = 0; i < entryDate.length; i += 1) {
+    hash = (hash * 37 + entryDate.charCodeAt(i)) >>> 0;
+  }
+  return DAILY_CAT_FORTUNES_VI[hash % DAILY_CAT_FORTUNES_VI.length];
+}
+
 export function hasActivityOnDate(store: CatyStoreData, dateKey: string): boolean {
   if (store.photos.some((p) => p.entryDate === dateKey)) return true;
   if (store.notes.some((n) => n.entryDate === dateKey)) return true;
+  if ((store.voiceMemos ?? []).some((v) => v.entryDate === dateKey)) return true;
   if (store.reminders.some((r) => r.entryDate === dateKey && r.completed)) return true;
   if (store.finance.some((f) => f.entryDate === dateKey)) return true;
   const entry = store.dayEntries[dateKey];
   if (
+    entry?.checkedIn ||
+    entry?.songTitle?.trim() ||
     entry?.dailyQuote?.trim() ||
     entry?.promptAnswers?.ownerAnswer?.trim() ||
     entry?.promptAnswers?.partnerAnswer?.trim()

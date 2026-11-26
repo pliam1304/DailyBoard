@@ -121,6 +121,7 @@ export interface DayEntry {
   mood: CatMood;
   partnerMood?: CatMood;
   weather: WeatherType;
+  checkedIn?: boolean;
   songTitle?: string;
   songArtist?: string;
   songSource?: MusicSource;
