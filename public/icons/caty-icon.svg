@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="cork" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#dfba8c" />
+      <stop offset="100%" stop-color="#c4945f" />
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#cork)" />
+  <rect x="24" y="24" width="208" height="208" rx="40" fill="#faf3e3" stroke="#8a623c" stroke-width="6" />
+  <rect x="92" y="12" width="72" height="24" rx="4" transform="rotate(-4 128 24)" fill="#a8d5ba" opacity="0.88" />
+  <!-- Hand-drawn cozy cat -->
+  <path d="M74 148 C70 112 80 86 92 78 L108 100 C120 96 136 96 148 100 L164 78 C176 86 186 112 182 148 C180 176 158 192 128 192 C98 192 76 176 74 148 Z" fill="#fffaf0" stroke="#4a3728" stroke-width="6" stroke-linejoin="round" />
+  <circle cx="107" cy="136" r="5.5" fill="#4a3728" />
+  <circle cx="149" cy="136" r="5.5" fill="#4a3728" />
+  <ellipse cx="96" cy="148" rx="7" ry="4" fill="#f5b7b1" opacity="0.7" />
+  <ellipse cx="160" cy="148" rx="7" ry="4" fill="#f5b7b1" opacity="0.7" />
+  <path d="M122 145 Q128 151 134 145" fill="none" stroke="#4a3728" stroke-width="4.5" stroke-linecap="round" />
+  <path d="M128 148 Q123 156 117 153 M128 148 Q133 156 139 153" fill="none" stroke="#4a3728" stroke-width="4" stroke-linecap="round" />
+  <path d="M58 134 L82 138 M56 148 L80 148 M198 134 L174 138 M200 148 L176 148" stroke="#4a3728" stroke-width="3.5" stroke-linecap="round" />
+  <path d="M188 74 C188 67 198 67 198 74 C198 67 208 67 208 74 C208 82 198 90 198 90 C198 90 188 82 188 74 Z" fill="#89b9e6" stroke="#4a3728" stroke-width="3" />
+</svg>
