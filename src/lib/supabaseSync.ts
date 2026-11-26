@@ -38,9 +38,12 @@ let cachedKey = '';
 let cachedClient: SupabaseClient | null = null;
 
 export function getSupabaseClient(config: CloudConfig): SupabaseClient | null {
-  const safeUrl = validateSafeHttpUrl(config.supabaseUrl, {
+  const rawUrl = validateSafeHttpUrl(config.supabaseUrl, {
     allowLocalhostHttp: true,
   });
+  const safeUrl = rawUrl
+    ? rawUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '')
+    : null;
   if (!safeUrl || !config.supabaseAnonKey) return null;
   // Never allow a secret service_role key to run inside the browser
   if (isLikelyServiceRoleKey(config.supabaseAnonKey)) return null;
