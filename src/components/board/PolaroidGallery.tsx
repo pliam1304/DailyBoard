@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   Camera,
   ImagePlus,
@@ -20,7 +21,6 @@ import {
   WASHI_OPTIONS,
   WashiTape,
 } from '@/components/decor/ScrapbookDecor';
-import { LiveCameraModal } from '@/components/board/LiveCameraModal';
 import type {
   BoardSharingState,
   DayPhoto,
@@ -28,6 +28,14 @@ import type {
   ThemeMode,
   WashiStyle,
 } from '@/types/catyboard';
+
+const LiveCameraModal = dynamic(
+  () =>
+    import('@/components/board/LiveCameraModal').then(
+      (mod) => mod.LiveCameraModal
+    ),
+  { ssr: false }
+);
 
 const QUICK_REACTIONS = ['❤️', '🐾', '🥰', '😂', '✨'];
 
@@ -96,6 +104,7 @@ export function PolaroidGallery({
       id: createUuid(),
       entryDate,
       dataUrl,
+      syncState: 'pending',
       caption: sanitizeText(caption, 160) || 'Khoảnh khắc hôm nay ♡',
       washiStyle: washi,
       rotationDeg: randomTilt,
@@ -288,11 +297,18 @@ export function PolaroidGallery({
                   <img
                     src={photo.dataUrl}
                     alt={photo.caption}
+                    loading="lazy"
+                    decoding="async"
                     className="aspect-[4/3] w-full object-cover"
                   />
                   <div className="absolute bottom-2 left-2">
                     <AuthorBadge sharing={sharing} role={photo.authorRole} />
                   </div>
+                  {photo.syncState === 'pending' && (
+                    <span className="absolute right-2 bottom-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-2xs">
+                      Đang lưu...
+                    </span>
+                  )}
                 </button>
 
                 <input

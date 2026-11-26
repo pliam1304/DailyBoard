@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   CalendarDays,
@@ -78,6 +79,7 @@ import {
 } from '@/lib/storage';
 import {
   acceptCloudInvitation,
+  applyRealtimeDelta,
   createCloudInvitation,
   ensureCloudBoard,
   fetchPendingInvitesForMe,
@@ -100,12 +102,49 @@ import { NotesAndLetters } from '@/components/board/NotesAndLetters';
 import { VoiceMemoCard } from '@/components/board/VoiceMemoCard';
 import { RemindersPanel } from '@/components/board/RemindersPanel';
 import { FinancePanel } from '@/components/board/FinancePanel';
-import { SearchCommandModal } from '@/components/board/SearchCommandModal';
-import { ScrapbookCalendar } from '@/components/calendar/ScrapbookCalendar';
-import { DailySnapshotModal } from '@/components/snapshot/DailySnapshotModal';
-import { EndOfDayWizardModal } from '@/components/snapshot/EndOfDayWizardModal';
-import { SyncSettingsModal } from '@/components/sync/SyncSettingsModal';
-import { SharedBoardModal } from '@/components/sync/SharedBoardModal';
+
+const SearchCommandModal = dynamic(
+  () =>
+    import('@/components/board/SearchCommandModal').then(
+      (m) => m.SearchCommandModal
+    ),
+  { ssr: false }
+);
+const ScrapbookCalendar = dynamic(
+  () =>
+    import('@/components/calendar/ScrapbookCalendar').then(
+      (m) => m.ScrapbookCalendar
+    ),
+  { ssr: false }
+);
+const DailySnapshotModal = dynamic(
+  () =>
+    import('@/components/snapshot/DailySnapshotModal').then(
+      (m) => m.DailySnapshotModal
+    ),
+  { ssr: false }
+);
+const EndOfDayWizardModal = dynamic(
+  () =>
+    import('@/components/snapshot/EndOfDayWizardModal').then(
+      (m) => m.EndOfDayWizardModal
+    ),
+  { ssr: false }
+);
+const SyncSettingsModal = dynamic(
+  () =>
+    import('@/components/sync/SyncSettingsModal').then(
+      (m) => m.SyncSettingsModal
+    ),
+  { ssr: false }
+);
+const SharedBoardModal = dynamic(
+  () =>
+    import('@/components/sync/SharedBoardModal').then(
+      (m) => m.SharedBoardModal
+    ),
+  { ssr: false }
+);
 import {
   PressedFlower,
   PuffyHeartSticker,
@@ -172,6 +211,9 @@ export function CatyBoardApp() {
   const [urlInviteCode, setUrlInviteCode] = useState<string>('');
   const [onlineMembers, setOnlineMembers] = useState<OnlineMemberPresence[]>([]);
   const [heartToast, setHeartToast] = useState<string | null>(null);
+  const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [recoveryMsg, setRecoveryMsg] = useState('');
 
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
   const notifiedRemindersRef = useRef<Set<string>>(new Set());
@@ -322,6 +364,9 @@ export function CatyBoardApp() {
     const client = getSupabaseClient(cloudConfig);
     if (client) {
       const { data: sub } = client.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          setPasswordRecoveryOpen(true);
+        }
         if (
           session?.user &&
           hydratedUserIdRef.current !== session.user.id
@@ -376,19 +421,39 @@ export function CatyBoardApp() {
       if (!client) return;
       setSyncStatus('Đang đồng bộ...');
       const res = await flushOutboxToSupabase(client, user, boardId, role);
+      if (res.syncedPhotoIds.length > 0) {
+        const syncedSet = new Set(res.syncedPhotoIds);
+        updateStore((prev) => ({
+          ...prev,
+          photos: prev.photos.map((p) =>
+            syncedSet.has(p.id) ? { ...p, syncState: 'synced' } : p
+          ),
+        }));
+      }
       setSyncStatus(
         res.remaining > 0
           ? 'Đã lưu trên máy ✓'
           : 'Đã đồng bộ ✓'
       );
     },
-    [cloudConfig]
+    [cloudConfig, updateStore]
   );
 
   const queueSync = useCallback(
     (op: OutboxOp) => {
-      enqueueOutboxOp(op);
-      if (!cloudUser || !store) return;
+      enqueueOutboxOp(op, activeAccountEmail);
+      if (!cloudUser || !store) {
+        // Local-only session: mark newly added photos as saved locally right away
+        if (op.kind === 'upsert_photo') {
+          updateStore((prev) => ({
+            ...prev,
+            photos: prev.photos.map((p) =>
+              p.id === op.photo.id ? { ...p, syncState: 'synced' } : p
+            ),
+          }));
+        }
+        return;
+      }
       if (store.sharing.boardId) {
         void flushCloudQueue(
           cloudUser,
@@ -416,7 +481,14 @@ export function CatyBoardApp() {
           setSyncStatus('Đã lưu trên máy ✓');
         });
     },
-    [cloudUser, store, cloudConfig, flushCloudQueue, updateStore]
+    [
+      activeAccountEmail,
+      cloudUser,
+      store,
+      cloudConfig,
+      flushCloudQueue,
+      updateStore,
+    ]
   );
 
   useEffect(() => {
@@ -433,7 +505,7 @@ export function CatyBoardApp() {
     return () => window.removeEventListener('online', onOnline);
   }, [cloudUser, store?.sharing.boardId, store?.sharing.activeRole, flushCloudQueue]);
 
-  // Continuous Realtime subscription (DB changes + Presence + Heart Ping)
+  // Continuous Realtime subscription (Delta row patching + Presence + Heart Ping)
   const cloudBoardId = store?.sharing.boardId;
   const myNickname = store
     ? getMemberNickname(store.sharing, store.sharing.activeRole)
@@ -455,7 +527,24 @@ export function CatyBoardApp() {
         role: myRole,
       },
       {
-        onDataChanged: () => {
+        onDataChanged: (delta) => {
+          const emailKey = (cloudUser.email || cloudUser.id).toLowerCase();
+          if (delta) {
+            let requiresFullPull = false;
+            setStore((current) => {
+              if (!current) return current;
+              const patched = applyRealtimeDelta(current, delta);
+              requiresFullPull = patched.needsFullPull;
+              if (!patched.needsFullPull && patched.next !== current) {
+                void saveStore(patched.next, emailKey);
+                setSyncStatus('Vừa đồng bộ ✓');
+                return patched.next;
+              }
+              return current;
+            });
+            if (!requiresFullPull) return;
+          }
+
           if (pullDebounce) clearTimeout(pullDebounce);
           pullDebounce = setTimeout(() => {
             setStore((current) => {
@@ -466,11 +555,8 @@ export function CatyBoardApp() {
                 cloudBoardId,
                 current
               ).then((pulled) => {
-                applyLoadedStore(
-                  pulled,
-                  (cloudUser.email || cloudUser.id).toLowerCase()
-                );
-                setSyncStatus('Vừa đồng bộ realtime ✓');
+                applyLoadedStore(pulled, emailKey);
+                setSyncStatus('Vừa đồng bộ ✓');
               });
               return current;
             });
@@ -855,6 +941,47 @@ export function CatyBoardApp() {
     return { demoCode };
   };
 
+  const handleRequestPasswordReset = async (email: string) => {
+    const client = getSupabaseClient(cloudConfig);
+    if (!client) {
+      throw new Error('Không thể kết nối máy chủ đặt lại mật khẩu.');
+    }
+    const redirectTo =
+      typeof window !== 'undefined' ? window.location.origin : undefined;
+    const { error } = await client.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+    if (error) throw error;
+  };
+
+  const handleSaveRecoveredPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryMsg('');
+    if (newPasswordInput.length < 8) {
+      setRecoveryMsg('Mật khẩu mới cần ít nhất 8 ký tự.');
+      return;
+    }
+    const client = getSupabaseClient(cloudConfig);
+    if (!client) return;
+    const { error } = await client.auth.updateUser({
+      password: newPasswordInput,
+    });
+    if (error) {
+      setRecoveryMsg(error.message || 'Không thể đổi mật khẩu.');
+      return;
+    }
+    if (activeAccountEmail) {
+      const accounts = loadLocalAccounts();
+      if (accounts[activeAccountEmail]) {
+        accounts[activeAccountEmail].passwordHash =
+          await hashJournalPin(newPasswordInput);
+        saveLocalAccounts(accounts);
+      }
+    }
+    setNewPasswordInput('');
+    setPasswordRecoveryOpen(false);
+  };
+
   const handleSignOut = async () => {
     const client = getSupabaseClient(cloudConfig);
     if (client) await client.auth.signOut();
@@ -886,6 +1013,7 @@ export function CatyBoardApp() {
         onSignupRequestOtp={handleSignupRequestOtp}
         onVerifyOtp={handleVerifyOtp}
         onResendOtp={handleResendOtp}
+        onRequestPasswordReset={handleRequestPasswordReset}
       />
     );
   }
@@ -2025,6 +2153,44 @@ export function CatyBoardApp() {
           onSignOut={handleSignOut}
           onSyncNow={handleSyncNow}
         />
+      )}
+
+      {/* Password Recovery Modal when user clicks reset link from Email */}
+      {passwordRecoveryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-xs">
+          <form
+            onSubmit={(e) => void handleSaveRecoveredPassword(e)}
+            className="w-full max-w-sm space-y-3 rounded-3xl border-2 border-[#c89d6d] bg-[#faf3e3] p-5 text-[#382619] shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-extrabold">🔑 Đặt mật khẩu mới</h2>
+              <button
+                type="button"
+                onClick={() => setPasswordRecoveryOpen(false)}
+                className="rounded-full bg-[#efe2cc] p-1.5 hover:bg-[#e4d2b6]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <input
+              type="password"
+              required
+              value={newPasswordInput}
+              onChange={(e) => setNewPasswordInput(e.target.value)}
+              placeholder="Nhập mật khẩu mới (ít nhất 8 ký tự)"
+              className="w-full rounded-xl border border-[#d6c09d] bg-white px-3 py-2 text-xs outline-none"
+            />
+            {recoveryMsg && (
+              <p className="text-xs font-bold text-[#a6343e]">{recoveryMsg}</p>
+            )}
+            <button
+              type="submit"
+              className="w-full rounded-2xl bg-[#3d7c57] py-2 text-xs font-extrabold text-white shadow-sm hover:bg-[#316647]"
+            >
+              Lưu mật khẩu mới
+            </button>
+          </form>
+        </div>
       )}
     </div>
   );

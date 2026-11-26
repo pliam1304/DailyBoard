@@ -36,6 +36,7 @@ import type {
 
 let cachedKey = '';
 let cachedClient: SupabaseClient | null = null;
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 export function getSupabaseClient(config: CloudConfig): SupabaseClient | null {
   const rawUrl = validateSafeHttpUrl(config.supabaseUrl, {
@@ -257,8 +258,14 @@ export async function deleteCloudItem(
   storagePath?: string
 ): Promise<void> {
   if (!isUuid(id)) return;
-  await client.from(table).delete().eq('id', id);
-  if (table === 'day_photos' && storagePath) {
+  const { error } = await client.from(table).delete().eq('id', id);
+  if (error) throw error;
+  if (
+    table === 'day_photos' &&
+    storagePath &&
+    !storagePath.startsWith('data:') &&
+    !storagePath.startsWith('https://')
+  ) {
     await client.storage.from('daily-photos').remove([storagePath]);
   }
 }
@@ -320,8 +327,8 @@ async function executeOutboxOp(
   op: OutboxOp
 ): Promise<void> {
   switch (op.kind) {
-    case 'upsert_board':
-      await client
+    case 'upsert_board': {
+      const { error } = await client
         .from('boards')
         .update({
           board_title: op.profile.boardTitle,
@@ -340,10 +347,12 @@ async function executeOutboxOp(
           updated_at: new Date().toISOString(),
         })
         .eq('id', boardId);
+      if (error) throw error;
       return;
+    }
 
-    case 'upsert_day':
-      await client.from('day_entries').upsert(
+    case 'upsert_day': {
+      const { error } = await client.from('day_entries').upsert(
         {
           board_id: boardId,
           entry_date: op.entry.entryDate,
@@ -361,7 +370,9 @@ async function executeOutboxOp(
         },
         { onConflict: 'board_id,entry_date' }
       );
+      if (error) throw error;
       return;
+    }
 
     case 'upsert_photo':
       await upsertSinglePhoto(client, user, boardId, activeRole, op.photo);
@@ -371,9 +382,9 @@ async function executeOutboxOp(
       await deleteCloudItem(client, 'day_photos', op.itemId, op.storagePath);
       return;
 
-    case 'upsert_note':
+    case 'upsert_note': {
       if (!isUuid(op.note.id)) return;
-      await client.from('notes').upsert({
+      const { error } = await client.from('notes').upsert({
         id: op.note.id,
         board_id: boardId,
         author_id: user.id,
@@ -389,15 +400,17 @@ async function executeOutboxOp(
         created_at: op.note.createdAt,
         updated_at: op.note.updatedAt,
       });
+      if (error) throw error;
       return;
+    }
 
     case 'delete_note':
       await deleteCloudItem(client, 'notes', op.itemId);
       return;
 
-    case 'upsert_reminder':
+    case 'upsert_reminder': {
       if (!isUuid(op.reminder.id)) return;
-      await client.from('reminders').upsert({
+      const { error } = await client.from('reminders').upsert({
         id: op.reminder.id,
         board_id: boardId,
         author_id: user.id,
@@ -412,15 +425,17 @@ async function executeOutboxOp(
         category: op.reminder.category,
         created_at: op.reminder.createdAt,
       });
+      if (error) throw error;
       return;
+    }
 
     case 'delete_reminder':
       await deleteCloudItem(client, 'reminders', op.itemId);
       return;
 
-    case 'upsert_finance':
+    case 'upsert_finance': {
       if (!isUuid(op.finance.id)) return;
-      await client.from('finance_entries').upsert({
+      const { error } = await client.from('finance_entries').upsert({
         id: op.finance.id,
         board_id: boardId,
         author_id: user.id,
@@ -433,15 +448,17 @@ async function executeOutboxOp(
         note: op.finance.note,
         created_at: op.finance.createdAt,
       });
+      if (error) throw error;
       return;
+    }
 
     case 'delete_finance':
       await deleteCloudItem(client, 'finance_entries', op.itemId);
       return;
 
-    case 'upsert_voice':
+    case 'upsert_voice': {
       if (!isUuid(op.voice.id) || !isAllowedAudioDataUrl(op.voice.dataUrl)) return;
-      await client.from('voice_memos').upsert({
+      const { error } = await client.from('voice_memos').upsert({
         id: op.voice.id,
         board_id: boardId,
         author_id: user.id,
@@ -452,15 +469,17 @@ async function executeOutboxOp(
         duration_sec: Math.min(45, Math.max(0, op.voice.durationSec)),
         created_at: op.voice.createdAt,
       });
+      if (error) throw error;
       return;
+    }
 
     case 'delete_voice':
       await deleteCloudItem(client, 'voice_memos', op.itemId);
       return;
 
-    case 'upsert_track':
+    case 'upsert_track': {
       if (!isUuid(op.track.id)) return;
-      await client.from('music_tracks').upsert({
+      const { error } = await client.from('music_tracks').upsert({
         id: op.track.id,
         board_id: boardId,
         author_id: user.id,
@@ -476,7 +495,9 @@ async function executeOutboxOp(
         is_favorite: op.track.isFavorite,
         created_at: op.track.createdAt,
       });
+      if (error) throw error;
       return;
+    }
 
     case 'delete_track':
       await deleteCloudItem(client, 'music_tracks', op.itemId);
@@ -486,31 +507,36 @@ async function executeOutboxOp(
 
 /**
  * Granular anti-overwrite flush: sends only queued mutations one-by-one.
- * Keeps failed ops in the offline queue for automatic retry on reconnect.
+ * Keeps failed ops in the account-scoped offline queue for automatic retry on reconnect.
  */
 export async function flushOutboxToSupabase(
   client: SupabaseClient,
   user: User,
   boardId: string,
   activeRole: MemberRole
-): Promise<{ synced: number; remaining: number }> {
-  const ops = loadOutbox();
-  if (ops.length === 0) return { synced: 0, remaining: 0 };
+): Promise<{ synced: number; remaining: number; syncedPhotoIds: string[] }> {
+  const userKey = (user.email || user.id).toLowerCase();
+  const ops = loadOutbox(userKey);
+  if (ops.length === 0) return { synced: 0, remaining: 0, syncedPhotoIds: [] };
 
   const remaining: OutboxOp[] = [];
+  const syncedPhotoIds: string[] = [];
   let synced = 0;
 
   for (const op of ops) {
     try {
       await executeOutboxOp(client, user, boardId, activeRole, op);
       synced += 1;
+      if (op.kind === 'upsert_photo') {
+        syncedPhotoIds.push(op.photo.id);
+      }
     } catch {
       remaining.push(op);
     }
   }
 
-  saveOutbox(remaining);
-  return { synced, remaining: remaining.length };
+  saveOutbox(remaining, userKey);
+  return { synced, remaining: remaining.length, syncedPhotoIds };
 }
 
 export async function syncMemberNicknamesToSupabase(
@@ -733,8 +759,75 @@ export async function pullStoreFromSupabase(
     };
   }
 
+  const userKey = (user.email || user.id).toLowerCase();
+  const pendingOps = loadOutbox(userKey);
+  const pendingDeletedPhotoIds = new Set(
+    pendingOps
+      .filter((op) => op.kind === 'delete_photo')
+      .map((op) => (op as { itemId: string }).itemId)
+  );
+  const pendingUpsertPhotoIds = new Set(
+    pendingOps
+      .filter((op) => op.kind === 'upsert_photo')
+      .map((op) => (op as { photo: DayPhoto }).photo.id)
+  );
+  const pendingUpsertNoteIds = new Set(
+    pendingOps
+      .filter((op) => op.kind === 'upsert_note')
+      .map((op) => (op as { note: NoteItem }).note.id)
+  );
+  const pendingUpsertReminderIds = new Set(
+    pendingOps
+      .filter((op) => op.kind === 'upsert_reminder')
+      .map((op) => (op as { reminder: ReminderItem }).reminder.id)
+  );
+  const pendingUpsertFinanceIds = new Set(
+    pendingOps
+      .filter((op) => op.kind === 'upsert_finance')
+      .map((op) => (op as { finance: FinanceEntry }).finance.id)
+  );
+  const pendingUpsertVoiceIds = new Set(
+    pendingOps
+      .filter((op) => op.kind === 'upsert_voice')
+      .map((op) => (op as { voice: VoiceMemo }).voice.id)
+  );
+
+  // Batch-sign all uncached Storage bucket paths in ONE HTTP call instead of N sequential calls
+  const photoRows = photosRes.data ?? [];
+  const nowMs = Date.now();
+  const uncachedBucketPaths = Array.from(
+    new Set(
+      photoRows
+        .map((r) => r.storage_path)
+        .filter(
+          (p): p is string =>
+            typeof p === 'string' &&
+            Boolean(p) &&
+            !p.startsWith('data:image/') &&
+            !p.startsWith('https://') &&
+            (signedUrlCache.get(p)?.expiresAt ?? 0) <= nowMs
+        )
+    )
+  );
+
+  if (uncachedBucketPaths.length > 0) {
+    const batchSigned = await client.storage
+      .from('daily-photos')
+      .createSignedUrls(uncachedBucketPaths, 60 * 60 * 24);
+    const ttlExpires = nowMs + 20 * 60 * 60 * 1000;
+    for (const entry of batchSigned.data ?? []) {
+      if (entry.path && entry.signedUrl) {
+        signedUrlCache.set(entry.path, {
+          url: entry.signedUrl,
+          expiresAt: ttlExpires,
+        });
+      }
+    }
+  }
+
   const cloudPhotos: DayPhoto[] = [];
-  for (const row of photosRes.data ?? []) {
+  for (const row of photoRows) {
+    if (pendingDeletedPhotoIds.has(row.id)) continue;
     const localMatch = fallbackStore.photos.find((p) => p.id === row.id);
     let resolvedUrl = '';
     if (
@@ -744,10 +837,8 @@ export async function pullStoreFromSupabase(
     ) {
       resolvedUrl = row.storage_path;
     } else if (row.storage_path) {
-      const signed = await client.storage
-        .from('daily-photos')
-        .createSignedUrl(row.storage_path, 60 * 60 * 24);
-      resolvedUrl = signed.data?.signedUrl || localMatch?.dataUrl || '';
+      resolvedUrl =
+        signedUrlCache.get(row.storage_path)?.url || localMatch?.dataUrl || '';
     } else if (localMatch?.dataUrl) {
       resolvedUrl = localMatch.dataUrl;
     }
@@ -759,6 +850,7 @@ export async function pullStoreFromSupabase(
       entryDate: row.entry_date,
       dataUrl: resolvedUrl,
       storagePath: row.storage_path,
+      syncState: 'synced',
       caption: row.caption,
       washiStyle: row.washi_style,
       rotationDeg: Number(row.rotation_deg ?? -2),
@@ -770,18 +862,16 @@ export async function pullStoreFromSupabase(
     });
   }
 
-  // Merge cloud photos with local personal photos so locally uploaded photos never vanish
+  // Keep unsynced local photos while allowing cloud-deleted ('synced') photos to stay deleted
   const cloudPhotoIds = new Set(cloudPhotos.map((p) => p.id));
-  const pendingDeletedPhotoIds = new Set(
-    loadOutbox()
-      .filter((op) => op.kind === 'delete_photo')
-      .map((op) => (op as { itemId: string }).itemId)
-  );
   const localOnlyPhotos = fallbackStore.photos.filter(
     (p) =>
       Boolean(p.dataUrl) &&
       !cloudPhotoIds.has(p.id) &&
-      !pendingDeletedPhotoIds.has(p.id)
+      !pendingDeletedPhotoIds.has(p.id) &&
+      (Boolean(photosRes.error) ||
+        pendingUpsertPhotoIds.has(p.id) ||
+        p.syncState !== 'synced')
   );
   const photos: DayPhoto[] = [...localOnlyPhotos, ...cloudPhotos];
 
@@ -800,10 +890,14 @@ export async function pullStoreFromSupabase(
     updatedAt: n.updated_at,
   }));
   const cloudNoteIds = new Set(cloudNotes.map((n) => n.id));
-  const notes: NoteItem[] = [
-    ...fallbackStore.notes.filter((n) => !cloudNoteIds.has(n.id)),
-    ...cloudNotes,
-  ];
+  const notes: NoteItem[] = notesRes.error
+    ? fallbackStore.notes
+    : [
+        ...fallbackStore.notes.filter(
+          (n) => !cloudNoteIds.has(n.id) && pendingUpsertNoteIds.has(n.id)
+        ),
+        ...cloudNotes,
+      ];
 
   const cloudReminders: ReminderItem[] = (remindersRes.data ?? []).map((r) => ({
     id: r.id,
@@ -819,10 +913,14 @@ export async function pullStoreFromSupabase(
     createdAt: r.created_at,
   }));
   const cloudReminderIds = new Set(cloudReminders.map((r) => r.id));
-  const reminders: ReminderItem[] = [
-    ...cloudReminders,
-    ...fallbackStore.reminders.filter((r) => !cloudReminderIds.has(r.id)),
-  ];
+  const reminders: ReminderItem[] = remindersRes.error
+    ? fallbackStore.reminders
+    : [
+        ...cloudReminders,
+        ...fallbackStore.reminders.filter(
+          (r) => !cloudReminderIds.has(r.id) && pendingUpsertReminderIds.has(r.id)
+        ),
+      ];
 
   const cloudFinance: FinanceEntry[] = (financeRes.data ?? []).map((f) => ({
     id: f.id,
@@ -836,10 +934,14 @@ export async function pullStoreFromSupabase(
     createdAt: f.created_at,
   }));
   const cloudFinanceIds = new Set(cloudFinance.map((f) => f.id));
-  const finance: FinanceEntry[] = [
-    ...fallbackStore.finance.filter((f) => !cloudFinanceIds.has(f.id)),
-    ...cloudFinance,
-  ];
+  const finance: FinanceEntry[] = financeRes.error
+    ? fallbackStore.finance
+    : [
+        ...fallbackStore.finance.filter(
+          (f) => !cloudFinanceIds.has(f.id) && pendingUpsertFinanceIds.has(f.id)
+        ),
+        ...cloudFinance,
+      ];
 
   const cloudVoices: VoiceMemo[] = (voicesRes.data ?? []).map((v) => ({
     id: v.id,
@@ -851,10 +953,14 @@ export async function pullStoreFromSupabase(
     createdAt: v.created_at,
   }));
   const cloudVoiceIds = new Set(cloudVoices.map((v) => v.id));
-  const voiceMemos: VoiceMemo[] = [
-    ...(fallbackStore.voiceMemos ?? []).filter((v) => !cloudVoiceIds.has(v.id)),
-    ...cloudVoices,
-  ];
+  const voiceMemos: VoiceMemo[] = voicesRes.error
+    ? fallbackStore.voiceMemos ?? []
+    : [
+        ...(fallbackStore.voiceMemos ?? []).filter(
+          (v) => !cloudVoiceIds.has(v.id) && pendingUpsertVoiceIds.has(v.id)
+        ),
+        ...cloudVoices,
+      ];
 
   const cloudTracks: MusicTrack[] = (tracksRes.data ?? []).map((t) => ({
     id: t.id,
@@ -918,12 +1024,196 @@ export interface OnlineMemberPresence {
   role: MemberRole;
 }
 
+export interface RealtimeDeltaEvent {
+  table: string;
+  eventType: string;
+  newRow: Record<string, unknown>;
+  oldRow: Record<string, unknown>;
+}
+
+/**
+ * Applies a WebSocket row event directly in memory (<20ms) without re-querying all 10 tables.
+ * Returns needsFullPull=true only when signed storage URLs or board membership require a pull.
+ */
+export function applyRealtimeDelta(
+  current: CatyStoreData,
+  evt: RealtimeDeltaEvent
+): { next: CatyStoreData; needsFullPull: boolean } {
+  const { table, eventType, newRow, oldRow } = evt;
+  const targetId = String(oldRow?.id || newRow?.id || '');
+
+  if (table === 'board_members' || table === 'board_invitations') {
+    return { next: current, needsFullPull: true };
+  }
+
+  if (eventType === 'DELETE' && targetId) {
+    switch (table) {
+      case 'day_photos':
+        return {
+          next: { ...current, photos: current.photos.filter((p) => p.id !== targetId) },
+          needsFullPull: false,
+        };
+      case 'notes':
+        return {
+          next: { ...current, notes: current.notes.filter((n) => n.id !== targetId) },
+          needsFullPull: false,
+        };
+      case 'reminders':
+        return {
+          next: {
+            ...current,
+            reminders: current.reminders.filter((r) => r.id !== targetId),
+          },
+          needsFullPull: false,
+        };
+      case 'finance_entries':
+        return {
+          next: { ...current, finance: current.finance.filter((f) => f.id !== targetId) },
+          needsFullPull: false,
+        };
+      case 'voice_memos':
+        return {
+          next: {
+            ...current,
+            voiceMemos: (current.voiceMemos ?? []).filter((v) => v.id !== targetId),
+          },
+          needsFullPull: false,
+        };
+      case 'music_tracks':
+        return {
+          next: { ...current, tracks: current.tracks.filter((t) => t.id !== targetId) },
+          needsFullPull: false,
+        };
+    }
+  }
+
+  if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+    if (table === 'reminders' && typeof newRow.id === 'string') {
+      const updated: ReminderItem = {
+        id: newRow.id,
+        entryDate: String(newRow.entry_date || ''),
+        title: String(newRow.title || ''),
+        dueTime: newRow.due_time ? String(newRow.due_time) : undefined,
+        completed: Boolean(newRow.completed),
+        completedAt: newRow.completed_at ? String(newRow.completed_at) : undefined,
+        authorRole: ((newRow.author_role as MemberRole) || 'owner'),
+        completedByRole: (newRow.completed_by_role as MemberRole) ?? undefined,
+        recurrence: (newRow.recurrence as ReminderItem['recurrence']) || 'none',
+        category: (newRow.category as ReminderItem['category']) || 'life',
+        createdAt: String(newRow.created_at || new Date().toISOString()),
+      };
+      const exists = current.reminders.some((r) => r.id === updated.id);
+      return {
+        next: {
+          ...current,
+          reminders: exists
+            ? current.reminders.map((r) => (r.id === updated.id ? updated : r))
+            : [...current.reminders, updated],
+        },
+        needsFullPull: false,
+      };
+    }
+
+    if (table === 'notes' && typeof newRow.id === 'string') {
+      const updated: NoteItem = {
+        id: newRow.id,
+        entryDate: String(newRow.entry_date || ''),
+        kind: (newRow.kind as NoteItem['kind']) || 'sticky',
+        title: String(newRow.title || ''),
+        content: String(newRow.content || ''),
+        paperStyle: (newRow.paper_style as NoteItem['paperStyle']) || 'cream-torn',
+        isPrivate: Boolean(newRow.is_private),
+        unlockDate: newRow.unlock_date ? String(newRow.unlock_date) : undefined,
+        pinned: Boolean(newRow.pinned),
+        authorRole: (newRow.author_role as MemberRole) || 'owner',
+        createdAt: String(newRow.created_at || new Date().toISOString()),
+        updatedAt: String(newRow.updated_at || new Date().toISOString()),
+      };
+      const exists = current.notes.some((n) => n.id === updated.id);
+      return {
+        next: {
+          ...current,
+          notes: exists
+            ? current.notes.map((n) => (n.id === updated.id ? updated : n))
+            : [updated, ...current.notes],
+        },
+        needsFullPull: false,
+      };
+    }
+
+    if (table === 'finance_entries' && typeof newRow.id === 'string') {
+      const updated: FinanceEntry = {
+        id: newRow.id,
+        entryDate: String(newRow.entry_date || ''),
+        type: (newRow.type as FinanceEntry['type']) || 'expense',
+        amount: Number(newRow.amount ?? 0),
+        category: (newRow.category as FinanceEntry['category']) || 'food',
+        moodTag: (newRow.mood_tag as FinanceEntry['moodTag']) || 'essential',
+        note: String(newRow.note || ''),
+        authorRole: (newRow.author_role as MemberRole) || 'owner',
+        createdAt: String(newRow.created_at || new Date().toISOString()),
+      };
+      const exists = current.finance.some((f) => f.id === updated.id);
+      return {
+        next: {
+          ...current,
+          finance: exists
+            ? current.finance.map((f) => (f.id === updated.id ? updated : f))
+            : [updated, ...current.finance],
+        },
+        needsFullPull: false,
+      };
+    }
+
+    if (table === 'day_photos' && typeof newRow.id === 'string') {
+      const sp = String(newRow.storage_path || '');
+      const existingPhoto = current.photos.find((p) => p.id === newRow.id);
+      const cachedSigned = signedUrlCache.get(sp)?.url;
+      const directUrl =
+        sp.startsWith('data:image/') || sp.startsWith('https://')
+          ? sp
+          : cachedSigned || existingPhoto?.dataUrl || '';
+      if (!directUrl) {
+        return { next: current, needsFullPull: true };
+      }
+      const updatedPhoto: DayPhoto = {
+        id: newRow.id,
+        entryDate: String(newRow.entry_date || ''),
+        dataUrl: directUrl,
+        storagePath: sp,
+        syncState: 'synced',
+        caption: String(newRow.caption || ''),
+        washiStyle: (newRow.washi_style as DayPhoto['washiStyle']) || 'mint-gingham',
+        rotationDeg: Number(newRow.rotation_deg ?? -2),
+        isCover: Boolean(newRow.is_cover),
+        authorRole: (newRow.author_role as MemberRole) || 'owner',
+        reactions: Array.isArray(newRow.reactions) ? (newRow.reactions as string[]) : [],
+        comments: Array.isArray(newRow.comments)
+          ? (newRow.comments as DayPhoto['comments'])
+          : [],
+        createdAt: String(newRow.created_at || new Date().toISOString()),
+      };
+      return {
+        next: {
+          ...current,
+          photos: existingPhoto
+            ? current.photos.map((p) => (p.id === updatedPhoto.id ? updatedPhoto : p))
+            : [updatedPhoto, ...current.photos],
+        },
+        needsFullPull: false,
+      };
+    }
+  }
+
+  return { next: current, needsFullPull: true };
+}
+
 export function subscribeBoardRealtime(
   client: SupabaseClient,
   boardId: string,
   me: OnlineMemberPresence,
   handlers: {
-    onDataChanged: () => void;
+    onDataChanged: (delta?: RealtimeDeltaEvent) => void;
     onPresenceChange: (online: OnlineMemberPresence[]) => void;
     onHeartPing: (fromNickname: string) => void;
   }
@@ -953,8 +1243,13 @@ export function subscribeBoardRealtime(
     channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table, filter },
-      () => {
-        handlers.onDataChanged();
+      (payload) => {
+        handlers.onDataChanged({
+          table,
+          eventType: payload.eventType,
+          newRow: (payload.new as Record<string, unknown>) || {},
+          oldRow: (payload.old as Record<string, unknown>) || {},
+        });
       }
     );
   }

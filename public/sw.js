@@ -1,4 +1,4 @@
-const CACHE_NAME = 'catyboard-offline-v1';
+const CACHE_NAME = 'nhatki-diary-v2';
 const PRECACHE_URLS = ['/', '/widget', '/manifest.webmanifest', '/icons/caty-icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -30,33 +30,46 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-  // Skip cross-origin requests (Supabase API, YouTube, Spotify)
+  // Skip cross-origin requests (Supabase API, YouTube, Spotify) and local API endpoints
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
 
-  if (req.mode === 'navigate') {
+  // Immutable hashed static bundles: Cache-First for maximum speed
+  const isImmutableAsset =
+    url.pathname.startsWith('/_next/static/') ||
+    url.pathname.startsWith('/icons/');
+
+  if (isImmutableAsset) {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          void caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          return res;
-        })
-        .catch(() => caches.match(req).then((hit) => hit || caches.match('/')))
+      caches.match(req).then(
+        (cached) =>
+          cached ||
+          fetch(req).then((res) => {
+            if (res.ok) {
+              const copy = res.clone();
+              void caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+            }
+            return res;
+          })
+      )
     );
     return;
   }
 
+  // HTML navigations, RSC payloads & manifest: Network-First so new deployments appear immediately
   event.respondWith(
-    caches.match(req).then(
-      (cached) =>
-        cached ||
-        fetch(req).then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            void caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          }
-          return res;
-        })
-    )
+    fetch(req)
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() =>
+        caches
+          .match(req)
+          .then((hit) => hit || (req.mode === 'navigate' ? caches.match('/') : Response.error()))
+      )
   );
 });

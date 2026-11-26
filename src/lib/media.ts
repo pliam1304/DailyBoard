@@ -132,6 +132,22 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
   });
 }
 
+function encodeCanvasOptimal(canvas: HTMLCanvasElement, quality: number): string {
+  const tryEncode = (q: number): string => {
+    const webp = canvas.toDataURL('image/webp', q);
+    if (webp.startsWith('data:image/webp;base64,')) {
+      return webp;
+    }
+    return canvas.toDataURL('image/jpeg', q);
+  };
+
+  let out = tryEncode(quality);
+  if (out.length > 650_000) {
+    out = tryEncode(0.65);
+  }
+  return out;
+}
+
 export async function compressImageToDataUrl(
   file: File,
   maxWidth = 960,
@@ -153,11 +169,7 @@ export async function compressImageToDataUrl(
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(bitmap, 0, 0, targetW, targetH);
-          let out = canvas.toDataURL('image/jpeg', quality);
-          if (out.length > 750_000) {
-            out = canvas.toDataURL('image/jpeg', 0.65);
-          }
-          return out;
+          return encodeCanvasOptimal(canvas, quality);
         }
       } finally {
         bitmap.close?.();
@@ -199,11 +211,7 @@ export async function compressImageToDataUrl(
     if (!ctx) throw new Error('Canvas không khả dụng');
     ctx.drawImage(img, 0, 0, targetW, targetH);
 
-    let out = canvas.toDataURL('image/jpeg', quality);
-    if (out.length > 750_000) {
-      out = canvas.toDataURL('image/jpeg', 0.65);
-    }
-    return out;
+    return encodeCanvasOptimal(canvas, quality);
   } finally {
     if (imageUrl) {
       URL.revokeObjectURL(imageUrl);

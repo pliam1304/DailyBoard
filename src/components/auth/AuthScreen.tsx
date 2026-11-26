@@ -47,6 +47,7 @@ interface AuthScreenProps {
     passwordFallback?: string
   ) => Promise<void>;
   onResendOtp: (email: string) => Promise<{ demoCode?: string }>;
+  onRequestPasswordReset?: (email: string) => Promise<void>;
 }
 
 export function AuthScreen({
@@ -55,8 +56,11 @@ export function AuthScreen({
   onSignupRequestOtp,
   onVerifyOtp,
   onResendOtp,
+  onRequestPasswordReset,
 }: AuthScreenProps) {
-  const [mode, setMode] = useState<'login' | 'signup' | 'verify_otp'>('login');
+  const [mode, setMode] = useState<
+    'login' | 'signup' | 'verify_otp' | 'forgot_password'
+  >('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
@@ -197,6 +201,34 @@ export function AuthScreen({
     }
   };
 
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setInfoMsg('');
+    const cleanEmail = email.trim().toLowerCase();
+    if (!validateEmail(cleanEmail)) {
+      setErrorMsg('Email chưa đúng định dạng.');
+      return;
+    }
+    if (!onRequestPasswordReset) {
+      setErrorMsg('Tính năng đặt lại mật khẩu hiện chưa khả dụng.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await onRequestPasswordReset(cleanEmail);
+      setInfoMsg(
+        `Đã gửi link đặt lại mật khẩu tới ${cleanEmail} (kiểm tra thêm mục Spam nếu chưa thấy).`
+      );
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'Không thể gửi yêu cầu đặt lại mật khẩu.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#efe4d2] p-4 text-[#382619]">
       <div className="corkboard-surface relative w-full max-w-md rounded-[32px] border-[8px] border-[#b68655] p-6 shadow-2xl">
@@ -222,7 +254,7 @@ export function AuthScreen({
 
         {/* Auth Card */}
         <div className="paper-cream-torn rounded-3xl border-2 border-[#c69d70] p-5 shadow-md">
-          {mode !== 'verify_otp' && (
+          {mode !== 'verify_otp' && mode !== 'forgot_password' && (
             <div className="mb-4 grid grid-cols-2 gap-1.5 rounded-2xl bg-[#efe3cf] p-1">
               <button
                 type="button"
@@ -289,15 +321,31 @@ export function AuthScreen({
                 </div>
               </label>
 
-              <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-[#5b432f]">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded accent-[#3a75a8]"
-                />
-                <span>Ghi nhớ đăng nhập</span>
-              </label>
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <label className="flex cursor-pointer items-center gap-2 font-semibold text-[#5b432f]">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded accent-[#3a75a8]"
+                  />
+                  <span>Ghi nhớ đăng nhập</span>
+                </label>
+
+                {onRequestPasswordReset && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('forgot_password');
+                      setErrorMsg('');
+                      setInfoMsg('');
+                    }}
+                    className="font-bold text-[#3a75a8] hover:underline"
+                  >
+                    Quên mật khẩu?
+                  </button>
+                )}
+              </div>
 
               {errorMsg && (
                 <p className="rounded-xl bg-[#fde8ea] px-3 py-2 text-xs font-bold text-[#a6343e]">
@@ -470,6 +518,65 @@ export function AuthScreen({
                   onClick={() => {
                     setMode('login');
                     setErrorMsg('');
+                  }}
+                  className="font-bold text-[#6b5340] hover:underline"
+                >
+                  Quay lại đăng nhập
+                </button>
+              </div>
+            </form>
+          )}
+
+          {mode === 'forgot_password' && (
+            <form onSubmit={handleForgotSubmit} className="space-y-3">
+              <div className="text-xs font-extrabold text-[#382619]">
+                🔑 Đặt lại mật khẩu
+              </div>
+
+              <label className="block text-xs">
+                <span className="font-bold">Email đã đăng ký</span>
+                <div className="relative mt-1">
+                  <Mail className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 opacity-50" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@gmail.com"
+                    className="w-full rounded-xl border border-[#d5bc99] bg-white py-2 pl-9 pr-3 text-xs outline-none"
+                  />
+                </div>
+              </label>
+
+              {infoMsg && (
+                <p className="rounded-xl bg-[#eef7f0] px-3 py-2 text-xs font-bold text-[#214f2d]">
+                  {infoMsg}
+                </p>
+              )}
+
+              {errorMsg && (
+                <p className="rounded-xl bg-[#fde8ea] px-3 py-2 text-xs font-bold text-[#a6343e]">
+                  {errorMsg}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={busy}
+                className="flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#3a75a8] py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#2f6390] disabled:opacity-60"
+              >
+                <ArrowRight className="h-4 w-4" />
+                {busy ? 'Đang gửi...' : 'Gửi link đặt lại mật khẩu'}
+              </button>
+
+              <div className="pt-1 text-center text-[11px]">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setMode('login');
+                    setErrorMsg('');
+                    setInfoMsg('');
                   }}
                   className="font-bold text-[#6b5340] hover:underline"
                 >

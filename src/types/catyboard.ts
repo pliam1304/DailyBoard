@@ -136,6 +136,7 @@ export interface DayPhoto {
   entryDate: string;
   dataUrl: string; // Compressed base64 or signed URL
   storagePath?: string;
+  syncState?: 'pending' | 'synced' | 'error';
   caption: string;
   washiStyle: WashiStyle;
   rotationDeg: number;
