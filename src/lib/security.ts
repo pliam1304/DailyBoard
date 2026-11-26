@@ -15,14 +15,18 @@ export function isDevAdminEmail(email?: string | null): boolean {
 
 export const ALLOWED_IMAGE_MIME_TYPES = [
   'image/jpeg',
+  'image/jpg',
+  'image/pjpeg',
   'image/png',
   'image/webp',
   'image/heic',
   'image/heif',
+  'image/avif',
+  'image/gif',
 ] as const;
 
-export const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024; // 10 MB raw before compression
-export const MAX_COMPRESSED_DATAURL_CHARS = 2_800_000; // ~2 MB base64
+export const MAX_IMAGE_FILE_BYTES = 25 * 1024 * 1024; // 25 MB raw before compression
+export const MAX_COMPRESSED_DATAURL_CHARS = 3_500_000; // ~2.5 MB base64
 export const MAX_VOICE_DATAURL_CHARS = 2_000_000; // ~1.5 MB base64
 export const MAX_BACKUP_FILE_BYTES = 15 * 1024 * 1024; // 15 MB JSON backup
 
@@ -93,18 +97,37 @@ export function validateImageFile(file: {
   size: number;
   name?: string;
 }): { ok: true } | { ok: false; reason: string } {
-  const mime = (file.type || '').toLowerCase();
-  const isAllowed = (ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(mime);
-  if (!isAllowed) {
+  const mime = (file.type || '').toLowerCase().trim();
+  const lowerName = (file.name || '').toLowerCase().trim();
+
+  if (mime.includes('svg') || lowerName.endsWith('.svg') || lowerName.endsWith('.svgz')) {
     return {
       ok: false,
-      reason: 'Chỉ hỗ trợ file ảnh JPG, PNG, WebP hoặc HEIC (không nhận SVG/file thực thi).',
+      reason: 'Không hỗ trợ file SVG vì lý do bảo mật. Hãy chọn ảnh JPG, PNG, WebP hoặc HEIC.',
+    };
+  }
+
+  const isKnownMime =
+    (ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(mime) ||
+    (mime.startsWith('image/') && !mime.includes('svg'));
+  const hasAllowedExtension = /\.(jpe?g|png|webp|heic|heif|avif|gif)$/i.test(
+    lowerName
+  );
+  // Mobile browsers (iOS/Android) sometimes pass empty file.type for camera roll / HEIC files
+  const isMobileCameraRollFallback =
+    (!mime || mime === 'application/octet-stream') &&
+    (hasAllowedExtension || !lowerName);
+
+  if (!isKnownMime && !hasAllowedExtension && !isMobileCameraRollFallback) {
+    return {
+      ok: false,
+      reason: 'Chỉ hỗ trợ file ảnh (JPG, PNG, WebP, HEIC).',
     };
   }
   if (file.size <= 0 || file.size > MAX_IMAGE_FILE_BYTES) {
     return {
       ok: false,
-      reason: 'Ảnh vượt quá giới hạn 10MB. Hãy chọn ảnh nhẹ hơn nhé!',
+      reason: 'Ảnh vượt quá giới hạn 25MB. Hãy chọn ảnh nhẹ hơn nhé!',
     };
   }
   return { ok: true };

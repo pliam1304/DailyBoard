@@ -155,8 +155,23 @@ export function createEmptyStore(
 }
 
 function normalizeUserKey(userIdentifier?: string | null): string {
-  const clean = (userIdentifier || 'guest').trim().toLowerCase();
+  const effective =
+    userIdentifier ||
+    (typeof window !== 'undefined' ? getActiveLocalUserEmail() : null) ||
+    'guest';
+  const clean = effective.trim().toLowerCase();
   return clean.replace(/[^a-z0-9@._-]/g, '_') || 'guest';
+}
+
+function mergeById<T extends { id: string }>(primary: T[], secondary: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const item of secondary) {
+    if (item?.id) map.set(item.id, item);
+  }
+  for (const item of primary) {
+    if (item?.id) map.set(item.id, item);
+  }
+  return Array.from(map.values());
 }
 
 function openIdb(): Promise<IDBDatabase | null> {
@@ -192,6 +207,7 @@ export async function loadStore(
     return createFreshAccountStore(initialAccountMeta);
   }
 
+  let idbStore: CatyStoreData | null = null;
   const db = await openIdb();
   if (db) {
     const idbData = await new Promise<CatyStoreData | null>((resolve) => {
@@ -206,19 +222,45 @@ export async function loadStore(
       }
     });
     if (idbData && idbData.version) {
-      return normalizeStoreData(idbData);
+      idbStore = normalizeStoreData(idbData);
     }
   }
 
+  let localStore: CatyStoreData | null = null;
   try {
     const raw = window.localStorage.getItem(localKey);
     if (raw) {
       const parsed = JSON.parse(raw) as CatyStoreData;
-      if (parsed && parsed.version) return normalizeStoreData(parsed);
+      if (parsed && parsed.version) {
+        localStore = normalizeStoreData(parsed);
+      }
     }
   } catch {
-    // Fall through to fresh board creation
+    // ignore parse errors
   }
+
+  if (idbStore && localStore) {
+    const base =
+      localStore.photos.length >= idbStore.photos.length ? localStore : idbStore;
+    return {
+      ...base,
+      dayEntries: { ...idbStore.dayEntries, ...localStore.dayEntries },
+      photos: mergeById(
+        localStore.photos.filter((p) => Boolean(p.dataUrl)),
+        idbStore.photos.filter((p) => Boolean(p.dataUrl))
+      ),
+      notes: mergeById(localStore.notes, idbStore.notes),
+      reminders: mergeById(localStore.reminders, idbStore.reminders),
+      finance: mergeById(localStore.finance, idbStore.finance),
+      voiceMemos: mergeById(
+        localStore.voiceMemos ?? [],
+        idbStore.voiceMemos ?? []
+      ),
+    };
+  }
+
+  if (idbStore) return idbStore;
+  if (localStore) return localStore;
 
   const fresh = createFreshAccountStore({
     email: initialAccountMeta?.email || (userIdentifier ?? ''),
@@ -371,14 +413,35 @@ export function saveLocalAccounts(accounts: Record<string, LocalUserAccount>): v
 
 export function getActiveLocalUserEmail(): string | null {
   if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(ACTIVE_LOCAL_USER_KEY);
+  try {
+    return (
+      window.localStorage.getItem(ACTIVE_LOCAL_USER_KEY) ||
+      window.sessionStorage.getItem(ACTIVE_LOCAL_USER_KEY)
+    );
+  } catch {
+    return null;
+  }
 }
 
-export function setActiveLocalUserEmail(email: string | null): void {
+export function setActiveLocalUserEmail(
+  email: string | null,
+  remember = true
+): void {
   if (typeof window === 'undefined') return;
-  if (!email) {
-    window.localStorage.removeItem(ACTIVE_LOCAL_USER_KEY);
-  } else {
-    window.localStorage.setItem(ACTIVE_LOCAL_USER_KEY, email.trim().toLowerCase());
+  try {
+    if (!email) {
+      window.localStorage.removeItem(ACTIVE_LOCAL_USER_KEY);
+      window.sessionStorage.removeItem(ACTIVE_LOCAL_USER_KEY);
+      return;
+    }
+    const clean = email.trim().toLowerCase();
+    window.sessionStorage.setItem(ACTIVE_LOCAL_USER_KEY, clean);
+    if (remember) {
+      window.localStorage.setItem(ACTIVE_LOCAL_USER_KEY, clean);
+    } else {
+      window.localStorage.removeItem(ACTIVE_LOCAL_USER_KEY);
+    }
+  } catch {
+    // ignore storage errors
   }
 }

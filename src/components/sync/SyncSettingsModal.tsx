@@ -201,7 +201,7 @@ export function SyncSettingsModal({
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-extrabold">
-              ⚙️ Cài Đặt Bảng & Tài Khoản Cá Nhân
+              ⚙️ Cài đặt
             </h2>
             {isDevUser && (
               <span className="inline-flex items-center gap-1 rounded-full bg-[#4a3425] px-2.5 py-0.5 text-[10px] font-extrabold text-[#ffd978]">
@@ -224,7 +224,7 @@ export function SyncSettingsModal({
             <div className="mb-2 flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide">
                 <Cloud className="h-4 w-4 text-[#3d7c57]" />
-                Tài khoản đang đăng nhập
+                Tài khoản
               </h3>
               <span className="rounded-full bg-[#efe5d2] px-2.5 py-0.5 text-[10px] font-bold">
                 {syncStatus}
@@ -233,9 +233,7 @@ export function SyncSettingsModal({
 
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#eef7f0] p-3 text-xs">
               <div>
-                <div className="text-[11px] opacity-75">
-                  {isDevUser ? 'Gmail Nhà phát triển (Dev):' : 'Gmail cá nhân:'}
-                </div>
+                <div className="text-[11px] opacity-75">Email:</div>
                 <div className="font-extrabold text-[#214f2d]">
                   {userEmail || 'Tài khoản cá nhân'}
                 </div>
@@ -246,7 +244,7 @@ export function SyncSettingsModal({
                   onClick={() => void onSyncNow()}
                   className="inline-flex items-center gap-1 rounded-xl bg-[#3d7c57] px-3 py-1.5 font-bold text-white hover:bg-[#316647]"
                 >
-                  <RefreshCw className="h-3.5 w-3.5" /> Làm mới dữ liệu
+                  <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ
                 </button>
                 <button
                   type="button"
@@ -265,11 +263,11 @@ export function SyncSettingsModal({
           {/* Personalization */}
           <section className="rounded-2xl border border-[#dfcba9] bg-white/85 p-4">
             <h3 className="mb-3 flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide">
-              <Sparkles className="h-3.5 w-3.5" /> Cá nhân hóa bảng & chú mèo
+              <Sparkles className="h-3.5 w-3.5" /> Tùy chỉnh giao diện
             </h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="text-xs">
-                <span className="font-bold">Tên bảng (chữ nổi 3D)</span>
+                <span className="font-bold">Tên bảng</span>
                 <input
                   type="text"
                   value={boardTitle}
@@ -279,7 +277,7 @@ export function SyncSettingsModal({
                 />
               </label>
               <label className="text-xs">
-                <span className="font-bold">Tên chú mèo đồng hành</span>
+                <span className="font-bold">Tên mèo</span>
                 <input
                   type="text"
                   value={catName}
@@ -288,20 +286,20 @@ export function SyncSettingsModal({
                 />
               </label>
               <label className="text-xs">
-                <span className="font-bold">Phong cách mèo</span>
+                <span className="font-bold">Kiểu mèo</span>
                 <select
                   value={catStyle}
                   onChange={(e) => setCatStyle(e.target.value as CatStyle)}
                   className="mt-1 w-full rounded-xl border border-[#d6c09d] bg-white px-3 py-1.5"
                 >
-                  <option value="hybrid">Tổng hợp (Doodle + Khăn choàng)</option>
-                  <option value="doodle">Nét vẽ tay thuần</option>
-                  <option value="pixel">Pixel Art cổ điển</option>
-                  <option value="chibi">Chibi Cozy</option>
+                  <option value="hybrid">Mặc định (Khăn choàng)</option>
+                  <option value="doodle">Vẽ tay</option>
+                  <option value="pixel">Pixel Art</option>
+                  <option value="chibi">Chibi</option>
                 </select>
               </label>
               <label className="text-xs">
-                <span className="font-bold">Ngân sách tháng (VNĐ)</span>
+                <span className="font-bold">Hạn mức chi tiêu tháng (VNĐ)</span>
                 <input
                   type="text"
                   value={budget}
@@ -310,32 +308,32 @@ export function SyncSettingsModal({
                 />
               </label>
               <label className="text-xs">
-                <span className="font-bold">Chất liệu nền bảng ghim</span>
+                <span className="font-bold">Nền bảng</span>
                 <select
                   value={boardTexture}
                   onChange={(e) => setBoardTexture(e.target.value as BoardTexture)}
                   className="mt-1 w-full rounded-xl border border-[#d6c09d] bg-white px-3 py-1.5"
                 >
-                  <option value="cork">Gỗ bần Scrapbook (mặc định)</option>
-                  <option value="linen">Vải Linen kem dịu</option>
-                  <option value="grid-paper">Giấy ô vuông Nhật (Grid)</option>
-                  <option value="walnut">Gỗ óc chó ấm áp</option>
+                  <option value="cork">Gỗ bần (mặc định)</option>
+                  <option value="linen">Vải Linen</option>
+                  <option value="grid-paper">Giấy kẻ ô</option>
+                  <option value="walnut">Gỗ trầm</option>
                 </select>
               </label>
               <label className="text-xs">
-                <span className="font-bold">Kiểu chữ Polaroid & Tâm Thư</span>
+                <span className="font-bold">Kiểu chữ</span>
                 <select
                   value={fontStyle}
                   onChange={(e) => setFontStyle(e.target.value as FontStyle)}
                   className="mt-1 w-full rounded-xl border border-[#d6c09d] bg-white px-3 py-1.5"
                 >
-                  <option value="rounded">Gọn gàng dễ đọc</option>
-                  <option value="handwriting">Nghiêng viết tay sổ tay</option>
+                  <option value="rounded">Chữ thường</option>
+                  <option value="handwriting">Chữ viết tay</option>
                 </select>
               </label>
               <label className="text-xs sm:col-span-2">
                 <span className="flex items-center justify-between gap-2 font-bold">
-                  <span>Mã PIN khóa Tâm Thư riêng tư</span>
+                  <span>Mã PIN khóa Tâm thư</span>
                   {hasExistingPin && !clearPinRequested && (
                     <button
                       type="button"

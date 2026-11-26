@@ -86,14 +86,67 @@ export async function ensureCloudBoard(
   store: CatyStoreData
 ): Promise<string> {
   const owner = store.sharing.members.find((m) => m.role === 'owner');
+  const defaultNick = owner?.nickname || DEFAULT_OWNER_NICKNAME;
+  const boardTitle = store.profile.boardTitle || DEFAULT_BOARD_TITLE;
+
   const { data, error } = await client.rpc('ensure_personal_board', {
-    p_default_nickname: owner?.nickname || DEFAULT_OWNER_NICKNAME,
-    p_board_title: store.profile.boardTitle || DEFAULT_BOARD_TITLE,
+    p_default_nickname: defaultNick,
+    p_board_title: boardTitle,
   });
-  if (error || !data) {
+  if (!error && data) {
+    return String(data);
+  }
+
+  // Fallback if RPC is unavailable: query or create board directly via PostgREST
+  const { data: authData } = await client.auth.getUser();
+  const user = authData?.user;
+  if (!user) {
     throw error || new Error('Không thể khởi tạo bảng đồng bộ.');
   }
-  return String(data);
+
+  const existingMember = await client
+    .from('board_members')
+    .select('board_id')
+    .eq('user_id', user.id)
+    .limit(1)
+    .maybeSingle();
+  if (existingMember.data?.board_id) {
+    return String(existingMember.data.board_id);
+  }
+
+  const existingBoard = await client
+    .from('boards')
+    .select('id')
+    .eq('owner_id', user.id)
+    .limit(1)
+    .maybeSingle();
+  if (existingBoard.data?.id) {
+    return String(existingBoard.data.id);
+  }
+
+  const createdBoard = await client
+    .from('boards')
+    .insert({
+      owner_id: user.id,
+      board_title: boardTitle,
+    })
+    .select('id')
+    .single();
+
+  if (createdBoard.error || !createdBoard.data?.id) {
+    throw createdBoard.error || error || new Error('Không thể khởi tạo bảng đồng bộ.');
+  }
+
+  const newBoardId = String(createdBoard.data.id);
+  await client.from('board_members').upsert({
+    board_id: newBoardId,
+    user_id: user.id,
+    role: 'owner',
+    email: (user.email || '').toLowerCase(),
+    nickname: defaultNick,
+    heart_color: 'sky',
+  });
+  return newBoardId;
 }
 
 export async function fetchPendingInvitesForMe(
@@ -221,16 +274,27 @@ async function upsertSinglePhoto(
   let storagePath = photo.storagePath;
   if (!storagePath && photo.dataUrl.startsWith('data:')) {
     const parsed = dataUrlToSafeImageBlob(photo.dataUrl);
-    if (!parsed) return;
-    storagePath = `${boardId}/${photo.entryDate}/${photo.id}.${parsed.ext}`;
-    await client.storage.from('daily-photos').upload(storagePath, parsed.blob, {
-      upsert: true,
-      contentType: parsed.blob.type,
-    });
+    if (parsed) {
+      const bucketPath = `${boardId}/${photo.entryDate}/${photo.id}.${parsed.ext}`;
+      const uploadRes = await client.storage
+        .from('daily-photos')
+        .upload(bucketPath, parsed.blob, {
+          upsert: true,
+          contentType: parsed.blob.type,
+        });
+      if (!uploadRes.error) {
+        storagePath = bucketPath;
+      } else {
+        // Fallback: store compressed dataUrl directly in Postgres day_photos.storage_path
+        storagePath = photo.dataUrl;
+      }
+    } else if (isAllowedPhotoDataUrl(photo.dataUrl)) {
+      storagePath = photo.dataUrl;
+    }
   }
   if (!storagePath) return;
 
-  await client.from('day_photos').upsert({
+  const { error } = await client.from('day_photos').upsert({
     id: photo.id,
     board_id: boardId,
     author_id: user.id,
@@ -245,6 +309,7 @@ async function upsertSinglePhoto(
     comments: (photo.comments ?? []).slice(0, 50),
     created_at: photo.createdAt,
   });
+  if (error) throw error;
 }
 
 async function executeOutboxOp(
@@ -668,15 +733,31 @@ export async function pullStoreFromSupabase(
     };
   }
 
-  const photos: DayPhoto[] = [];
+  const cloudPhotos: DayPhoto[] = [];
   for (const row of photosRes.data ?? []) {
-    const signed = await client.storage
-      .from('daily-photos')
-      .createSignedUrl(row.storage_path, 60 * 60 * 24);
-    photos.push({
+    const localMatch = fallbackStore.photos.find((p) => p.id === row.id);
+    let resolvedUrl = '';
+    if (
+      typeof row.storage_path === 'string' &&
+      (row.storage_path.startsWith('data:image/') ||
+        row.storage_path.startsWith('https://'))
+    ) {
+      resolvedUrl = row.storage_path;
+    } else if (row.storage_path) {
+      const signed = await client.storage
+        .from('daily-photos')
+        .createSignedUrl(row.storage_path, 60 * 60 * 24);
+      resolvedUrl = signed.data?.signedUrl || localMatch?.dataUrl || '';
+    } else if (localMatch?.dataUrl) {
+      resolvedUrl = localMatch.dataUrl;
+    }
+
+    if (!resolvedUrl) continue;
+
+    cloudPhotos.push({
       id: row.id,
       entryDate: row.entry_date,
-      dataUrl: signed.data?.signedUrl || '',
+      dataUrl: resolvedUrl,
       storagePath: row.storage_path,
       caption: row.caption,
       washiStyle: row.washi_style,
@@ -689,7 +770,22 @@ export async function pullStoreFromSupabase(
     });
   }
 
-  const notes: NoteItem[] = (notesRes.data ?? []).map((n) => ({
+  // Merge cloud photos with local personal photos so locally uploaded photos never vanish
+  const cloudPhotoIds = new Set(cloudPhotos.map((p) => p.id));
+  const pendingDeletedPhotoIds = new Set(
+    loadOutbox()
+      .filter((op) => op.kind === 'delete_photo')
+      .map((op) => (op as { itemId: string }).itemId)
+  );
+  const localOnlyPhotos = fallbackStore.photos.filter(
+    (p) =>
+      Boolean(p.dataUrl) &&
+      !cloudPhotoIds.has(p.id) &&
+      !pendingDeletedPhotoIds.has(p.id)
+  );
+  const photos: DayPhoto[] = [...localOnlyPhotos, ...cloudPhotos];
+
+  const cloudNotes: NoteItem[] = (notesRes.data ?? []).map((n) => ({
     id: n.id,
     entryDate: n.entry_date,
     kind: n.kind,
@@ -703,8 +799,13 @@ export async function pullStoreFromSupabase(
     createdAt: n.created_at,
     updatedAt: n.updated_at,
   }));
+  const cloudNoteIds = new Set(cloudNotes.map((n) => n.id));
+  const notes: NoteItem[] = [
+    ...fallbackStore.notes.filter((n) => !cloudNoteIds.has(n.id)),
+    ...cloudNotes,
+  ];
 
-  const reminders: ReminderItem[] = (remindersRes.data ?? []).map((r) => ({
+  const cloudReminders: ReminderItem[] = (remindersRes.data ?? []).map((r) => ({
     id: r.id,
     entryDate: r.entry_date,
     title: r.title,
@@ -717,8 +818,13 @@ export async function pullStoreFromSupabase(
     category: r.category,
     createdAt: r.created_at,
   }));
+  const cloudReminderIds = new Set(cloudReminders.map((r) => r.id));
+  const reminders: ReminderItem[] = [
+    ...cloudReminders,
+    ...fallbackStore.reminders.filter((r) => !cloudReminderIds.has(r.id)),
+  ];
 
-  const finance: FinanceEntry[] = (financeRes.data ?? []).map((f) => ({
+  const cloudFinance: FinanceEntry[] = (financeRes.data ?? []).map((f) => ({
     id: f.id,
     entryDate: f.entry_date,
     type: f.type,
@@ -729,8 +835,13 @@ export async function pullStoreFromSupabase(
     authorRole: (f.author_role as MemberRole) || 'owner',
     createdAt: f.created_at,
   }));
+  const cloudFinanceIds = new Set(cloudFinance.map((f) => f.id));
+  const finance: FinanceEntry[] = [
+    ...fallbackStore.finance.filter((f) => !cloudFinanceIds.has(f.id)),
+    ...cloudFinance,
+  ];
 
-  const voiceMemos: VoiceMemo[] = (voicesRes.data ?? []).map((v) => ({
+  const cloudVoices: VoiceMemo[] = (voicesRes.data ?? []).map((v) => ({
     id: v.id,
     entryDate: v.entry_date,
     title: v.title,
@@ -739,6 +850,11 @@ export async function pullStoreFromSupabase(
     authorRole: (v.author_role as MemberRole) || 'owner',
     createdAt: v.created_at,
   }));
+  const cloudVoiceIds = new Set(cloudVoices.map((v) => v.id));
+  const voiceMemos: VoiceMemo[] = [
+    ...(fallbackStore.voiceMemos ?? []).filter((v) => !cloudVoiceIds.has(v.id)),
+    ...cloudVoices,
+  ];
 
   const cloudTracks: MusicTrack[] = (tracksRes.data ?? []).map((t) => ({
     id: t.id,
@@ -783,8 +899,10 @@ export async function pullStoreFromSupabase(
       activeRole: myMember?.role || fallbackStore.sharing.activeRole,
     },
     syncedTrack: (boardRes.data?.active_track as MusicTrack | null) ?? null,
-    dayEntries:
-      Object.keys(dayEntries).length > 0 ? dayEntries : fallbackStore.dayEntries,
+    dayEntries: {
+      ...fallbackStore.dayEntries,
+      ...dayEntries,
+    },
     photos,
     notes,
     reminders,

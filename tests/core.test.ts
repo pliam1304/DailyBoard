@@ -341,11 +341,19 @@ test('security helpers hash PINs, block service_role keys, restrict uploads, rat
     validateSafeHttpUrl('http://localhost:54321', { allowLocalhostHttp: true })
   );
 
-  // 4. Upload restriction (blocks SVG XSS & oversized files)
+  // 4. Upload restriction (supports mobile HEIC/empty-MIME camera roll while blocking SVG XSS & >25MB files)
   assert.equal(validateImageFile({ type: 'image/jpeg', size: 500_000 }).ok, true);
+  assert.equal(
+    validateImageFile({ type: '', name: 'IMG_1234.HEIC', size: 14 * 1024 * 1024 }).ok,
+    true
+  );
   assert.equal(validateImageFile({ type: 'image/svg+xml', size: 1000 }).ok, false);
   assert.equal(
-    validateImageFile({ type: 'image/png', size: 12 * 1024 * 1024 }).ok,
+    validateImageFile({ type: '', name: 'payload.svg', size: 1000 }).ok,
+    false
+  );
+  assert.equal(
+    validateImageFile({ type: 'image/png', size: 30 * 1024 * 1024 }).ok,
     false
   );
 

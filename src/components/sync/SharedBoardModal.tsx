@@ -166,13 +166,13 @@ export function SharedBoardModal({
             <div>
               <h2 className="text-base font-extrabold">
                 {isDuo
-                  ? `Bảng Chung 2 Người • ${owner?.nickname || 'Him'} & ${partner?.nickname || 'Her'}`
-                  : 'Mời Người Thứ 2 Dùng Chung Bảng'}
+                  ? `${owner?.nickname || 'Him'} & ${partner?.nickname || 'Her'}`
+                  : 'Mời dùng chung bảng'}
               </h2>
               <p className="text-xs text-[#755b46]">
                 {isDuo
-                  ? 'Cùng chia sẻ ảnh Polaroid, ghi chú, nhắc nhở, tài chính & nhạc lofi'
-                  : 'Hiện là bảng cá nhân 1 người — mời thêm 1 người qua email để dùng chung'}
+                  ? 'Đang dùng chung bảng'
+                  : 'Mời thêm 1 người qua email'}
               </p>
             </div>
           </div>
@@ -194,12 +194,12 @@ export function SharedBoardModal({
               className="rounded-2xl border border-[#dfcba9] bg-white/85 p-4 space-y-3"
             >
               <div className="text-xs font-extrabold uppercase tracking-wide text-[#6b513b]">
-                💌 Gửi lời mời qua Email
+                💌 Gửi lời mời
               </div>
 
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <label className="text-xs">
-                  <span className="font-bold">Biệt danh của bạn (mặc định Him)</span>
+                  <span className="font-bold">Tên gọi của bạn</span>
                   <input
                     type="text"
                     value={ownerNick}
@@ -209,7 +209,7 @@ export function SharedBoardModal({
                   />
                 </label>
                 <label className="text-xs">
-                  <span className="font-bold">Biệt danh người ấy (mặc định Her)</span>
+                  <span className="font-bold">Tên gọi người ấy</span>
                   <input
                     type="text"
                     value={partnerNick}
@@ -221,7 +221,7 @@ export function SharedBoardModal({
               </div>
 
               <label className="block text-xs">
-                <span className="font-bold">Email người thứ 2</span>
+                <span className="font-bold">Email người được mời</span>
                 <div className="relative mt-1">
                   <Mail className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 opacity-50" />
                   <input
@@ -238,19 +238,14 @@ export function SharedBoardModal({
                 <p className="text-xs font-semibold text-[#c54650]">{errorMsg}</p>
               )}
 
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <span className="text-[11px] text-[#7c614a]">
-                  {isCloudSignedIn
-                    ? 'Đã kết nối Supabase: đồng bộ realtime giữa 2 máy.'
-                    : 'Chưa nối Cloud: bật trước chế độ 2 người để bạn thử ngay!'}
-                </span>
+              <div className="flex justify-end pt-1">
                 <button
                   type="submit"
                   disabled={busy}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-[#3a75a8] px-4 py-2 text-xs font-extrabold text-white shadow-xs hover:bg-[#2f6390] disabled:opacity-50"
                 >
                   <UserPlus className="h-3.5 w-3.5" />
-                  {busy ? 'Đang tạo lời mời...' : 'Mời vào bảng chung'}
+                  {busy ? 'Đang gửi...' : 'Tạo lời mời'}
                 </button>
               </div>
             </form>

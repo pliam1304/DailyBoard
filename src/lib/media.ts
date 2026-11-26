@@ -108,23 +108,89 @@ export async function fetchYouTubeTitle(videoUrl: string): Promise<{
   }
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Không thể đọc dữ liệu ảnh'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Không thể đọc file ảnh'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Không thể giải mã ảnh trên thiết bị này'));
+    el.src = src;
+  });
+}
+
 export async function compressImageToDataUrl(
   file: File,
-  maxWidth = 1100,
-  quality = 0.82
+  maxWidth = 960,
+  quality = 0.78
 ): Promise<string> {
-  const imageUrl = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('Không thể đọc file ảnh'));
-      el.src = imageUrl;
-    });
+  // 1. Try modern createImageBitmap first (best mobile iOS/Android EXIF orientation & memory handling)
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file);
+      try {
+        const scale =
+          bitmap.width > maxWidth ? maxWidth / bitmap.width : 1;
+        const targetW = Math.max(1, Math.round(bitmap.width * scale));
+        const targetH = Math.max(1, Math.round(bitmap.height * scale));
 
-    const scale = img.width > maxWidth ? maxWidth / img.width : 1;
-    const targetW = Math.round(img.width * scale);
-    const targetH = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+          let out = canvas.toDataURL('image/jpeg', quality);
+          if (out.length > 750_000) {
+            out = canvas.toDataURL('image/jpeg', 0.65);
+          }
+          return out;
+        }
+      } finally {
+        bitmap.close?.();
+      }
+    } catch {
+      // Fall through to HTMLImageElement decoding
+    }
+  }
+
+  // 2. Fallback: Object URL -> HTMLImageElement, then FileReader DataURL -> HTMLImageElement (for mobile WebViews)
+  let img: HTMLImageElement | null = null;
+  const imageUrl =
+    typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function'
+      ? URL.createObjectURL(file)
+      : '';
+  try {
+    if (imageUrl) {
+      try {
+        img = await loadImageElement(imageUrl);
+      } catch {
+        img = null;
+      }
+    }
+    if (!img) {
+      const rawDataUrl = await readFileAsDataUrl(file);
+      img = await loadImageElement(rawDataUrl);
+    }
+
+    const naturalW = img.naturalWidth || img.width || 800;
+    const naturalH = img.naturalHeight || img.height || 600;
+    const scale = naturalW > maxWidth ? maxWidth / naturalW : 1;
+    const targetW = Math.max(1, Math.round(naturalW * scale));
+    const targetH = Math.max(1, Math.round(naturalH * scale));
 
     const canvas = document.createElement('canvas');
     canvas.width = targetW;
@@ -133,8 +199,14 @@ export async function compressImageToDataUrl(
     if (!ctx) throw new Error('Canvas không khả dụng');
     ctx.drawImage(img, 0, 0, targetW, targetH);
 
-    return canvas.toDataURL('image/jpeg', quality);
+    let out = canvas.toDataURL('image/jpeg', quality);
+    if (out.length > 750_000) {
+      out = canvas.toDataURL('image/jpeg', 0.65);
+    }
+    return out;
   } finally {
-    URL.revokeObjectURL(imageUrl);
+    if (imageUrl) {
+      URL.revokeObjectURL(imageUrl);
+    }
   }
 }

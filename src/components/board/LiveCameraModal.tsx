@@ -191,7 +191,7 @@ export function LiveCameraModal({
     setFlashActive(true);
     setTimeout(() => setFlashActive(false), 180);
 
-    const maxWidth = 1280;
+    const maxWidth = 960;
     const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
     const targetW = Math.round(video.videoWidth * scale);
     const targetH = Math.round(video.videoHeight * scale);
@@ -203,7 +203,13 @@ export function LiveCameraModal({
     if (!ctx) return;
 
     ctx.save();
-    ctx.filter = activeFilterCss;
+    try {
+      if ('filter' in ctx) {
+        ctx.filter = activeFilterCss;
+      }
+    } catch {
+      // Ignore if mobile browser canvas doesn't support ctx.filter
+    }
     if (mirrored) {
       ctx.translate(targetW, 0);
       ctx.scale(-1, 1);
@@ -229,7 +235,7 @@ export function LiveCameraModal({
       ctx.restore();
     }
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
     setCapturedUrl(dataUrl);
     setStatus('captured');
     stopStream();
@@ -294,10 +300,10 @@ export function LiveCameraModal({
             </div>
             <div>
               <h2 className="text-sm font-extrabold">
-                Máy Ảnh Polaroid Trực Tiếp
+                Chụp ảnh Polaroid
               </h2>
               <p className="text-[11px] text-[#6b5340]">
-                Chụp bằng camera thật của thiết bị & dán ngay lên ngày hôm nay
+                Chọn màu phim hoặc chuyển sang camera gốc của máy
               </p>
             </div>
           </div>
@@ -500,14 +506,14 @@ export function LiveCameraModal({
 
             {/* Camera Controls Row */}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   onClick={handleFlipFacing}
                   title="Đổi camera trước / sau"
                   className="inline-flex items-center gap-1 rounded-xl bg-[#ede0cc] px-3 py-2 text-xs font-bold text-[#382619] hover:bg-[#e1d0b6]"
                 >
-                  <RefreshCw className="h-3.5 w-3.5" /> Đổi ống kính
+                  <RefreshCw className="h-3.5 w-3.5" /> Đổi cam
                 </button>
                 <button
                   type="button"
@@ -520,6 +526,17 @@ export function LiveCameraModal({
                   }`}
                 >
                   <FlipHorizontal className="h-3.5 w-3.5" /> Gương
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleClose();
+                    onFallbackNativeCamera();
+                  }}
+                  title="Dùng ứng dụng Camera gốc hoặc Thư viện của điện thoại"
+                  className="inline-flex items-center gap-1 rounded-xl bg-[#ede0cc] px-3 py-2 text-xs font-bold text-[#382619] hover:bg-[#e1d0b6]"
+                >
+                  <Upload className="h-3.5 w-3.5" /> Camera máy
                 </button>
               </div>
 

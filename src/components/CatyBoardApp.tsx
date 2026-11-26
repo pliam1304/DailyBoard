@@ -175,6 +175,8 @@ export function CatyBoardApp() {
 
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
   const notifiedRemindersRef = useRef<Set<string>>(new Set());
+  const hydratedUserIdRef = useRef<string | null>(null);
+  const rememberLoginRef = useRef<boolean>(true);
   const pendingSignupMetaRef = useRef<{
     boardTitle: string;
     nickname: string;
@@ -192,7 +194,7 @@ export function CatyBoardApp() {
         setActiveTrackId(loaded.tracks[0].id);
       }
       if (emailKey) {
-        setActiveLocalUserEmail(emailKey);
+        setActiveLocalUserEmail(emailKey, rememberLoginRef.current);
         void saveStore(loaded, emailKey);
       }
     },
@@ -204,11 +206,12 @@ export function CatyBoardApp() {
       const client = getSupabaseClient(cloudConfig);
       if (!client) return;
 
+      hydratedUserIdRef.current = user.id;
       const emailKey = (user.email || user.id).toLowerCase();
       setCloudUser(user);
       setLocalUserEmail(emailKey);
-      setActiveLocalUserEmail(emailKey);
-      setSyncStatus('Đang tải bảng của bạn...');
+      setActiveLocalUserEmail(emailKey, rememberLoginRef.current);
+      setSyncStatus('Đang tải dữ liệu...');
 
       const metaFromAuth = user.user_metadata as
         | { board_title?: string; nickname?: string }
@@ -237,22 +240,31 @@ export function CatyBoardApp() {
 
         const boardId =
           localBase.sharing.boardId || (await ensureCloudBoard(client, localBase));
+        const baseWithBoardId: CatyStoreData = {
+          ...localBase,
+          sharing: {
+            ...localBase.sharing,
+            boardId,
+          },
+        };
+        applyLoadedStore(baseWithBoardId, emailKey);
+
         await flushOutboxToSupabase(
           client,
           user,
           boardId,
-          localBase.sharing.activeRole
+          baseWithBoardId.sharing.activeRole
         );
         const pulled = await pullStoreFromSupabase(
           client,
           user,
           boardId,
-          localBase
+          baseWithBoardId
         );
         applyLoadedStore(pulled, emailKey);
-        setSyncStatus('Đã đồng bộ Cloud ✓');
+        setSyncStatus('Đã đồng bộ ✓');
       } catch {
-        setSyncStatus('Lưu trên thiết bị');
+        setSyncStatus('Đã lưu trên máy ✓');
       } finally {
         pendingSignupMetaRef.current = null;
       }
@@ -260,7 +272,7 @@ export function CatyBoardApp() {
     [cloudConfig, applyLoadedStore]
   );
 
-  // Boot: register Service Worker, check ?invite=CODE, and restore existing session
+  // Boot: register Service Worker, check ?invite=CODE, and restore persistent login session
   useEffect(() => {
     registerServiceWorker();
     if (typeof window !== 'undefined') {
@@ -268,19 +280,55 @@ export function CatyBoardApp() {
       if (code) setUrlInviteCode(code.trim());
     }
 
+    let cancelled = false;
+
+    void (async () => {
+      // 1. Immediately restore remembered personal session from local storage / IndexedDB
+      const savedEmail = getActiveLocalUserEmail();
+      if (savedEmail) {
+        const accounts = loadLocalAccounts();
+        const localMeta = accounts[savedEmail];
+        setLocalUserEmail(savedEmail);
+        const loaded = await loadStore(savedEmail, {
+          email: savedEmail,
+          boardTitle: localMeta?.boardTitle || DEFAULT_BOARD_TITLE,
+          nickname: localMeta?.nickname || DEFAULT_OWNER_NICKNAME,
+        });
+        if (!cancelled) {
+          applyLoadedStore(loaded, savedEmail);
+          setAuthChecking(false);
+        }
+      }
+
+      // 2. Restore or refresh cloud session from Supabase Auth storage
+      const client = getSupabaseClient(cloudConfig);
+      if (client) {
+        try {
+          const { data: sessionData } = await client.auth.getSession();
+          const sessionUser = sessionData?.session?.user;
+          if (sessionUser && !cancelled) {
+            await hydrateCloudUserBoard(sessionUser);
+          }
+        } catch {
+          // Offline or token expired: keep remembered local session intact
+        }
+      }
+
+      if (!cancelled) {
+        setAuthChecking(false);
+      }
+    })();
+
     const client = getSupabaseClient(cloudConfig);
     if (client) {
-      void client.auth.getUser().then(async ({ data }) => {
-        if (data.user) {
-          await hydrateCloudUserBoard(data.user);
-        }
-        setAuthChecking(false);
-      });
-
-      const { data: sub } = client.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
+      const { data: sub } = client.auth.onAuthStateChange((event, session) => {
+        if (
+          session?.user &&
+          hydratedUserIdRef.current !== session.user.id
+        ) {
           void hydrateCloudUserBoard(session.user);
-        } else {
+        } else if (event === 'SIGNED_OUT') {
+          hydratedUserIdRef.current = null;
           setCloudUser(null);
           setOnlineMembers([]);
           setIncomingInvites([]);
@@ -288,25 +336,14 @@ export function CatyBoardApp() {
       });
 
       return () => {
+        cancelled = true;
         sub.subscription.unsubscribe();
       };
     }
 
-    // Local session restore when running locally without Supabase env vars
-    void (async () => {
-      const savedEmail = getActiveLocalUserEmail();
-      const accounts = loadLocalAccounts();
-      if (savedEmail && accounts[savedEmail]?.verified) {
-        setLocalUserEmail(savedEmail);
-        const loaded = await loadStore(savedEmail, {
-          email: savedEmail,
-          boardTitle: accounts[savedEmail].boardTitle || DEFAULT_BOARD_TITLE,
-          nickname: accounts[savedEmail].nickname || DEFAULT_OWNER_NICKNAME,
-        });
-        applyLoadedStore(loaded, savedEmail);
-      }
-      setAuthChecking(false);
-    })();
+    return () => {
+      cancelled = true;
+    };
   }, [cloudConfig, hydrateCloudUserBoard, applyLoadedStore]);
 
   // Global Cmd+K / Ctrl+K shortcut for instant search
@@ -341,8 +378,8 @@ export function CatyBoardApp() {
       const res = await flushOutboxToSupabase(client, user, boardId, role);
       setSyncStatus(
         res.remaining > 0
-          ? `Chờ mạng (${res.remaining} mục)`
-          : 'Đã đồng bộ Cloud ✓'
+          ? 'Đã lưu trên máy ✓'
+          : 'Đã đồng bộ ✓'
       );
     },
     [cloudConfig]
@@ -351,14 +388,35 @@ export function CatyBoardApp() {
   const queueSync = useCallback(
     (op: OutboxOp) => {
       enqueueOutboxOp(op);
-      if (!cloudUser || !store?.sharing.boardId) return;
-      void flushCloudQueue(
-        cloudUser,
-        store.sharing.boardId,
-        store.sharing.activeRole
-      );
+      if (!cloudUser || !store) return;
+      if (store.sharing.boardId) {
+        void flushCloudQueue(
+          cloudUser,
+          store.sharing.boardId,
+          store.sharing.activeRole
+        );
+        return;
+      }
+      // If boardId was not yet initialized, ensure it in background and flush
+      const client = getSupabaseClient(cloudConfig);
+      if (!client) return;
+      void ensureCloudBoard(client, store)
+        .then((newBoardId) => {
+          updateStore((prev) => ({
+            ...prev,
+            sharing: { ...prev.sharing, boardId: newBoardId },
+          }));
+          return flushCloudQueue(
+            cloudUser,
+            newBoardId,
+            store.sharing.activeRole
+          );
+        })
+        .catch(() => {
+          setSyncStatus('Đã lưu trên máy ✓');
+        });
     },
-    [cloudUser, store?.sharing.boardId, store?.sharing.activeRole, flushCloudQueue]
+    [cloudUser, store, cloudConfig, flushCloudQueue, updateStore]
   );
 
   useEffect(() => {
@@ -480,11 +538,34 @@ export function CatyBoardApp() {
 
   // --- User Auth Flows (Email Login + Registration + Gmail OTP Verification + Fresh Board Creation) ---
 
-  const handleUserLogin = async (email: string, password: string) => {
+  const handleUserLogin = async (
+    email: string,
+    password: string,
+    remember = true
+  ) => {
+    rememberLoginRef.current = remember;
     const client = getSupabaseClient(cloudConfig);
     if (client) {
       const res = await client.auth.signInWithPassword({ email, password });
       if (!res.error && res.data.user) {
+        const accounts = loadLocalAccounts();
+        const pwHash = await hashJournalPin(password);
+        accounts[email] = {
+          email,
+          passwordHash: pwHash,
+          boardTitle:
+            accounts[email]?.boardTitle ||
+            (res.data.user.user_metadata?.board_title as string | undefined) ||
+            DEFAULT_BOARD_TITLE,
+          nickname:
+            accounts[email]?.nickname ||
+            (res.data.user.user_metadata?.nickname as string | undefined) ||
+            DEFAULT_OWNER_NICKNAME,
+          verified: true,
+          createdAt: accounts[email]?.createdAt || new Date().toISOString(),
+        };
+        saveLocalAccounts(accounts);
+
         if (urlInviteCode) {
           try {
             const joinedId = await acceptCloudInvitation(client, urlInviteCode);
@@ -527,7 +608,7 @@ export function CatyBoardApp() {
           await hydrateCloudUserBoard(signUpRes.data.user);
           return;
         }
-      } else if (res.error) {
+      } else if (res.error && !loadLocalAccounts()[email]) {
         throw res.error;
       }
     }
@@ -536,17 +617,17 @@ export function CatyBoardApp() {
     const accounts = loadLocalAccounts();
     const acc = accounts[email];
     if (!acc) {
-      throw new Error('Tài khoản email này chưa được đăng ký. Hãy bấm qua tab Đăng ký mới nhé!');
+      throw new Error('Email này chưa được đăng ký.');
     }
     const ok = await verifyJournalPin(password, acc.passwordHash);
     if (!ok) {
       throw new Error('Mật khẩu chưa chính xác.');
     }
     if (!acc.verified) {
-      throw new Error('Tài khoản chưa xác thực mã Gmail.');
+      throw new Error('Tài khoản chưa xác nhận email.');
     }
     setLocalUserEmail(email);
-    setActiveLocalUserEmail(email);
+    setActiveLocalUserEmail(email, remember);
     const loaded = await loadStore(email, {
       email,
       boardTitle: acc.boardTitle || DEFAULT_BOARD_TITLE,
@@ -777,6 +858,7 @@ export function CatyBoardApp() {
   const handleSignOut = async () => {
     const client = getSupabaseClient(cloudConfig);
     if (client) await client.auth.signOut();
+    hydratedUserIdRef.current = null;
     setCloudUser(null);
     setLocalUserEmail(null);
     setActiveLocalUserEmail(null);
@@ -789,7 +871,7 @@ export function CatyBoardApp() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#efe4d2] text-[#382619]">
         <div className="rounded-3xl border-2 border-[#c69d70] bg-[#fbf5e9] px-6 py-4 text-sm font-bold shadow-md">
-          Đang mở góc bàn lofi & đánh thức chú mèo... 🐾
+          Đang tải... 🐾
         </div>
       </div>
     );

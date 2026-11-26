@@ -108,17 +108,26 @@ export function PolaroidGallery({
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const pickedFiles = Array.from(files);
     setUploadError('');
     setUploading(true);
     try {
-      for (const file of Array.from(files)) {
+      for (const file of pickedFiles) {
         const check = validateImageFile(file);
         if (!check.ok) {
           setUploadError(check.reason);
           continue;
         }
-        const compressed = await compressImageToDataUrl(file);
-        pushPhotoData(compressed, captionDraft, selectedWashi);
+        try {
+          const compressed = await compressImageToDataUrl(file);
+          pushPhotoData(compressed, captionDraft, selectedWashi);
+        } catch (err) {
+          setUploadError(
+            err instanceof Error
+              ? err.message
+              : 'Không thể xử lý ảnh này. Hãy thử chọn ảnh JPG hoặc PNG nhé!'
+          );
+        }
       }
       setCaptionDraft('');
     } finally {
@@ -141,34 +150,26 @@ export function PolaroidGallery({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-extrabold">
-              📸 Ảnh Thật Trong Ngày (Polaroid)
+              📸 Ảnh trong ngày
             </h3>
             <p
               className={`text-xs ${
                 isNight ? 'text-[#cbb7a1]' : 'text-[#6b5340]'
               }`}
             >
-              Mở camera trực tiếp trên thiết bị (iPhone / MacBook / Webcam) hoặc chọn ảnh từ thư viện
+              Chụp ảnh mới hoặc tải ảnh từ máy
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Hidden fallback native capture + album upload inputs */}
+            {/* Hidden fallback native capture input */}
             <input
               ref={nativeCameraInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              accept="image/*"
               capture="environment"
               onChange={(e) => void handleFiles(e.target.files)}
-              className="hidden"
-            />
-            <input
-              ref={albumInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-              multiple
-              onChange={(e) => void handleFiles(e.target.files)}
-              className="hidden"
+              className="sr-only"
             />
 
             <button
@@ -178,18 +179,26 @@ export function PolaroidGallery({
               className="inline-flex items-center gap-1.5 rounded-2xl bg-[#3a75a8] px-4 py-2 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#2f6390] disabled:opacity-60"
             >
               <Camera className="h-4 w-4" />
-              Chụp ảnh ngay
+              Chụp ảnh
             </button>
 
-            <button
-              type="button"
-              disabled={uploading}
-              onClick={() => albumInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-2xl bg-[#3d7c57] px-4 py-2 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#316647] disabled:opacity-60"
+            <label
+              className={`inline-flex cursor-pointer items-center gap-1.5 rounded-2xl bg-[#3d7c57] px-4 py-2 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#316647] ${
+                uploading ? 'pointer-events-none opacity-60' : ''
+              }`}
             >
               <ImagePlus className="h-4 w-4" />
-              {uploading ? 'Đang tải...' : 'Chọn từ thư viện'}
-            </button>
+              <span>{uploading ? 'Đang tải...' : 'Tải ảnh lên'}</span>
+              <input
+                ref={albumInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={uploading}
+                onChange={(e) => void handleFiles(e.target.files)}
+                className="sr-only"
+              />
+            </label>
           </div>
         </div>
 
@@ -199,7 +208,7 @@ export function PolaroidGallery({
             type="text"
             value={captionDraft}
             onChange={(e) => setCaptionDraft(e.target.value)}
-            placeholder="Dòng chú thích ngắn cho ảnh Polaroid (tùy chọn)..."
+            placeholder="Viết chú thích cho ảnh..."
             className={`flex-1 rounded-xl border px-3 py-1.5 text-xs outline-none ${
               isNight
                 ? 'border-[#5e4635] bg-[#3a2c22] text-[#f4e8d6] placeholder:text-[#baa58f]'
@@ -238,9 +247,9 @@ export function PolaroidGallery({
           }`}
         >
           <PressedFlower className="mb-2 opacity-85" />
-          <p className="text-sm font-bold">Ngày này chưa có tấm ảnh Polaroid nào</p>
+          <p className="text-sm font-bold">Chưa có ảnh nào trong ngày</p>
           <p className="mt-1 text-xs opacity-85">
-            Bấm “Chụp ảnh ngay” để mở camera thật và ghim khoảnh khắc hôm nay lên bảng!
+            Bấm “Chụp ảnh” hoặc “Tải ảnh lên” để ghim ảnh vào bảng.
           </p>
         </div>
       ) : (
