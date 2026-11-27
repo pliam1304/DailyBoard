@@ -1,20 +1,22 @@
-import { toLocalDateKey } from '@/lib/date';
+import { toLocalDateKey } from './date.ts';
 import {
   DEV_ADMIN_EMAIL,
   DEV_ADMIN_PASSWORD_HASH,
   isDevAdminEmail,
-} from '@/lib/security';
+} from './security.ts';
 import {
   createDefaultSharing,
   DEFAULT_BOARD_TITLE,
   DEFAULT_OWNER_NICKNAME,
   normalizeStoreData,
-} from '@/lib/sharing';
+} from './sharing.ts';
 import type {
   CatyStoreData,
   CloudConfig,
   DayEntry,
+  DayPhoto,
   MusicTrack,
+  VoiceMemo,
 } from '@/types/catyboard';
 
 const LOCAL_META_PREFIX = 'nameboard_store_v2_';
@@ -163,22 +165,124 @@ function normalizeUserKey(userIdentifier?: string | null): string {
   return clean.replace(/[^a-z0-9@._-]/g, '_') || 'guest';
 }
 
-function mergeById<T extends { id: string }>(primary: T[], secondary: T[]): T[] {
-  const map = new Map<string, T>();
-  for (const item of secondary) {
-    if (item?.id) map.set(item.id, item);
-  }
-  for (const item of primary) {
-    if (item?.id) map.set(item.id, item);
-  }
-  return Array.from(map.values());
+interface StoredEnvelope {
+  __catyEnvelopeV1: true;
+  savedAt: number;
+  data: CatyStoreData;
 }
+
+function unwrapStoredRecord(raw: unknown): {
+  data: CatyStoreData;
+  savedAt: number;
+} | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const candidate = raw as Partial<StoredEnvelope> & Partial<CatyStoreData>;
+  if (candidate.__catyEnvelopeV1 && candidate.data && candidate.data.version) {
+    return {
+      data: normalizeStoreData(candidate.data),
+      savedAt: typeof candidate.savedAt === 'number' ? candidate.savedAt : 0,
+    };
+  }
+  if (typeof candidate.version === 'number') {
+    return {
+      data: normalizeStoreData(candidate),
+      savedAt: 0,
+    };
+  }
+  return null;
+}
+
+/**
+ * Strips multi-megabyte base64 image/audio payloads before writing to `localStorage`
+ * when IndexedDB already holds the full binary payloads. Reduces main-thread JSON
+ * serialization from megabytes to ~15 KB and prevents 5MB localStorage quota overflow.
+ */
+export function stripHeavyMediaForLocalStorage(
+  data: CatyStoreData
+): CatyStoreData {
+  return {
+    ...data,
+    photos: data.photos.map((p) => ({
+      ...p,
+      dataUrl: p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+      comments: p.comments?.map((c) =>
+        c.id === '__polaroid_back_voice__' && c.text.startsWith('data:')
+          ? { ...c, text: '__idb_audio__' }
+          : c
+      ),
+    })),
+    voiceMemos: (data.voiceMemos ?? []).map((v) => ({
+      ...v,
+      dataUrl: v.dataUrl.startsWith('data:') ? '' : v.dataUrl,
+    })),
+  };
+}
+
+/**
+ * Re-hydrates full binary `dataUrl`s from IndexedDB (`mediaStore`) onto a newer
+ * metadata snapshot (`metaStore`), preserving latest captions, reactions, deletions,
+ * notes, reminders, and finance entries without losing heavy media blobs.
+ */
+export function mergeStoresPreservingMedia(
+  metaStore: CatyStoreData,
+  mediaStore: CatyStoreData
+): CatyStoreData {
+  const mediaPhotosById = new Map<string, DayPhoto>();
+  for (const p of mediaStore.photos) {
+    if (p?.id) mediaPhotosById.set(p.id, p);
+  }
+
+  const mediaVoicesById = new Map<string, VoiceMemo>();
+  for (const v of mediaStore.voiceMemos ?? []) {
+    if (v?.id) mediaVoicesById.set(v.id, v);
+  }
+
+  const hydratedPhotos: DayPhoto[] = metaStore.photos
+    .map((p) => {
+      const mediaMatch = mediaPhotosById.get(p.id);
+      const restoredUrl = p.dataUrl || mediaMatch?.dataUrl || '';
+      const mediaBackVoice = mediaMatch?.comments?.find(
+        (c) => c.id === '__polaroid_back_voice__'
+      )?.text;
+      const restoredComments = p.comments?.map((c) =>
+        c.id === '__polaroid_back_voice__' &&
+        (c.text === '__idb_audio__' || !c.text) &&
+        mediaBackVoice
+          ? { ...c, text: mediaBackVoice }
+          : c
+      );
+      return {
+        ...p,
+        dataUrl: restoredUrl,
+        comments: restoredComments,
+      };
+    })
+    .filter((p) => Boolean(p.dataUrl));
+
+  const hydratedVoices: VoiceMemo[] = (metaStore.voiceMemos ?? [])
+    .map((v) => ({
+      ...v,
+      dataUrl: v.dataUrl || mediaVoicesById.get(v.id)?.dataUrl || '',
+    }))
+    .filter((v) => Boolean(v.dataUrl));
+
+  return {
+    ...metaStore,
+    dayEntries: { ...mediaStore.dayEntries, ...metaStore.dayEntries },
+    photos: hydratedPhotos,
+    voiceMemos: hydratedVoices,
+  };
+}
+
+let cachedDbPromise: Promise<IDBDatabase | null> | null = null;
 
 function openIdb(): Promise<IDBDatabase | null> {
   if (typeof window === 'undefined' || !('indexedDB' in window)) {
     return Promise.resolve(null);
   }
-  return new Promise((resolve) => {
+  if (cachedDbPromise) return cachedDbPromise;
+
+  cachedDbPromise = new Promise((resolve) => {
     try {
       const req = window.indexedDB.open(IDB_NAME, 1);
       req.onupgradeneeded = () => {
@@ -187,12 +291,27 @@ function openIdb(): Promise<IDBDatabase | null> {
           db.createObjectStore(IDB_STORE);
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onclose = () => {
+          cachedDbPromise = null;
+        };
+        db.onversionchange = () => {
+          db.close();
+          cachedDbPromise = null;
+        };
+        resolve(db);
+      };
+      req.onerror = () => {
+        cachedDbPromise = null;
+        resolve(null);
+      };
     } catch {
+      cachedDbPromise = null;
       resolve(null);
     }
   });
+  return cachedDbPromise;
 }
 
 export async function loadStore(
@@ -207,60 +326,55 @@ export async function loadStore(
     return createFreshAccountStore(initialAccountMeta);
   }
 
-  let idbStore: CatyStoreData | null = null;
+  let idbUnwrapped: { data: CatyStoreData; savedAt: number } | null = null;
   const db = await openIdb();
   if (db) {
-    const idbData = await new Promise<CatyStoreData | null>((resolve) => {
+    const idbRaw = await new Promise<unknown>((resolve) => {
       try {
         const tx = db.transaction(IDB_STORE, 'readonly');
         const store = tx.objectStore(IDB_STORE);
         const req = store.get(idbRecordKey);
-        req.onsuccess = () => resolve((req.result as CatyStoreData) ?? null);
+        req.onsuccess = () => resolve(req.result ?? null);
         req.onerror = () => resolve(null);
       } catch {
         resolve(null);
       }
     });
-    if (idbData && idbData.version) {
-      idbStore = normalizeStoreData(idbData);
-    }
+    idbUnwrapped = unwrapStoredRecord(idbRaw);
   }
 
-  let localStore: CatyStoreData | null = null;
+  let localUnwrapped: { data: CatyStoreData; savedAt: number } | null = null;
   try {
     const raw = window.localStorage.getItem(localKey);
     if (raw) {
-      const parsed = JSON.parse(raw) as CatyStoreData;
-      if (parsed && parsed.version) {
-        localStore = normalizeStoreData(parsed);
-      }
+      localUnwrapped = unwrapStoredRecord(JSON.parse(raw));
     }
   } catch {
     // ignore parse errors
   }
 
-  if (idbStore && localStore) {
-    const base =
-      localStore.photos.length >= idbStore.photos.length ? localStore : idbStore;
+  if (idbUnwrapped && localUnwrapped) {
+    // If IndexedDB is at least as fresh as localStorage, return IndexedDB directly (full media intact)
+    if (
+      idbUnwrapped.savedAt > 0 &&
+      idbUnwrapped.savedAt >= localUnwrapped.savedAt
+    ) {
+      return idbUnwrapped.data;
+    }
+    // Otherwise merge newer metadata from localStorage while preserving binary media from IndexedDB
+    return mergeStoresPreservingMedia(localUnwrapped.data, idbUnwrapped.data);
+  }
+
+  if (idbUnwrapped) return idbUnwrapped.data;
+  if (localUnwrapped) {
     return {
-      ...base,
-      dayEntries: { ...idbStore.dayEntries, ...localStore.dayEntries },
-      photos: mergeById(
-        localStore.photos.filter((p) => Boolean(p.dataUrl)),
-        idbStore.photos.filter((p) => Boolean(p.dataUrl))
-      ),
-      notes: mergeById(localStore.notes, idbStore.notes),
-      reminders: mergeById(localStore.reminders, idbStore.reminders),
-      finance: mergeById(localStore.finance, idbStore.finance),
-      voiceMemos: mergeById(
-        localStore.voiceMemos ?? [],
-        idbStore.voiceMemos ?? []
+      ...localUnwrapped.data,
+      photos: localUnwrapped.data.photos.filter((p) => Boolean(p.dataUrl)),
+      voiceMemos: (localUnwrapped.data.voiceMemos ?? []).filter((v) =>
+        Boolean(v.dataUrl)
       ),
     };
   }
-
-  if (idbStore) return idbStore;
-  if (localStore) return localStore;
 
   const fresh = createFreshAccountStore({
     email: initialAccountMeta?.email || (userIdentifier ?? ''),
@@ -279,34 +393,121 @@ export async function saveStore(
   const userKey = normalizeUserKey(userIdentifier);
   const idbRecordKey = `store_${userKey}`;
   const localKey = `${LOCAL_META_PREFIX}${userKey}`;
+  const savedAt = Date.now();
 
+  // Clear any pending debounced save for this same user since we are saving now
+  const existingPending = pendingSaves.get(userKey);
+  if (existingPending) {
+    clearTimeout(existingPending.timer);
+    pendingSaves.delete(userKey);
+  }
+
+  let idbSavedOk = false;
   const db = await openIdb();
   if (db) {
-    await new Promise<void>((resolve) => {
+    idbSavedOk = await new Promise<boolean>((resolve) => {
       try {
+        const envelope: StoredEnvelope = {
+          __catyEnvelopeV1: true,
+          savedAt,
+          data,
+        };
         const tx = db.transaction(IDB_STORE, 'readwrite');
-        tx.objectStore(IDB_STORE).put(data, idbRecordKey);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
+        tx.objectStore(IDB_STORE).put(envelope, idbRecordKey);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
       } catch {
-        resolve();
+        resolve(false);
       }
     });
   }
 
   try {
-    window.localStorage.setItem(localKey, JSON.stringify(data));
+    const localPayload: StoredEnvelope = {
+      __catyEnvelopeV1: true,
+      savedAt,
+      data: idbSavedOk ? stripHeavyMediaForLocalStorage(data) : data,
+    };
+    window.localStorage.setItem(localKey, JSON.stringify(localPayload));
   } catch {
     try {
-      const slim: CatyStoreData = {
-        ...data,
-        photos: data.photos.slice(0, 6),
+      const slimPayload: StoredEnvelope = {
+        __catyEnvelopeV1: true,
+        savedAt,
+        data: stripHeavyMediaForLocalStorage({
+          ...data,
+          photos: data.photos.slice(0, 20),
+        }),
       };
-      window.localStorage.setItem(localKey, JSON.stringify(slim));
+      window.localStorage.setItem(localKey, JSON.stringify(slimPayload));
     } catch {
-      // Ignore quota errors
+      // Ignore quota errors; IndexedDB holds full store
     }
   }
+}
+
+interface PendingSaveEntry {
+  timer: ReturnType<typeof setTimeout>;
+  data: CatyStoreData;
+  userIdentifier?: string | null;
+}
+
+const pendingSaves = new Map<string, PendingSaveEntry>();
+let lifecycleFlushBound = false;
+
+function ensureLifecycleFlushListener() {
+  if (lifecycleFlushBound || typeof window === 'undefined') return;
+  lifecycleFlushBound = true;
+
+  const flushSyncMetadataAndAsyncIdb = () => {
+    for (const [userKey, entry] of pendingSaves.entries()) {
+      clearTimeout(entry.timer);
+      pendingSaves.delete(userKey);
+      const localKey = `${LOCAL_META_PREFIX}${userKey}`;
+      const savedAt = Date.now();
+      try {
+        const fastEnvelope: StoredEnvelope = {
+          __catyEnvelopeV1: true,
+          savedAt,
+          data: stripHeavyMediaForLocalStorage(entry.data),
+        };
+        window.localStorage.setItem(localKey, JSON.stringify(fastEnvelope));
+      } catch {
+        // ignore
+      }
+      void saveStore(entry.data, entry.userIdentifier);
+    }
+  };
+
+  window.addEventListener('pagehide', flushSyncMetadataAndAsyncIdb);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      flushSyncMetadataAndAsyncIdb();
+    }
+  });
+}
+
+/**
+ * Coalesces rapid consecutive state updates (e.g. typing, checking items) into a single
+ * non-blocking background persistence write, with automatic flush on tab hide/close.
+ */
+export function scheduleSaveStore(
+  data: CatyStoreData,
+  userIdentifier?: string | null,
+  delayMs = 360
+): void {
+  if (typeof window === 'undefined') return;
+  ensureLifecycleFlushListener();
+  const userKey = normalizeUserKey(userIdentifier);
+  const prev = pendingSaves.get(userKey);
+  if (prev) {
+    clearTimeout(prev.timer);
+  }
+  const timer = setTimeout(() => {
+    pendingSaves.delete(userKey);
+    void saveStore(data, userIdentifier);
+  }, delayMs);
+  pendingSaves.set(userKey, { timer, data, userIdentifier });
 }
 
 export function ensureDayEntry(

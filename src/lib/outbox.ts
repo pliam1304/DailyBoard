@@ -90,6 +90,26 @@ export function enqueueOutboxOp(
     filtered = filtered.filter(
       (item) => !(item.kind === 'upsert_voice' && item.voice.id === op.itemId)
     );
+  } else if (op.kind === 'upsert_photo') {
+    filtered = filtered.filter(
+      (item) => !(item.kind === 'delete_photo' && item.itemId === op.photo.id)
+    );
+  } else if (op.kind === 'upsert_note') {
+    filtered = filtered.filter(
+      (item) => !(item.kind === 'delete_note' && item.itemId === op.note.id)
+    );
+  } else if (op.kind === 'upsert_reminder') {
+    filtered = filtered.filter(
+      (item) => !(item.kind === 'delete_reminder' && item.itemId === op.reminder.id)
+    );
+  } else if (op.kind === 'upsert_finance') {
+    filtered = filtered.filter(
+      (item) => !(item.kind === 'delete_finance' && item.itemId === op.finance.id)
+    );
+  } else if (op.kind === 'upsert_voice') {
+    filtered = filtered.filter(
+      (item) => !(item.kind === 'delete_voice' && item.itemId === op.voice.id)
+    );
   }
   const next = [...filtered, op];
   saveOutbox(next, userIdentifier);

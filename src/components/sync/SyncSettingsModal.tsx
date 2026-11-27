@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { loadOutbox } from '@/lib/outbox';
+import { formatVndInput, parseVndInput } from '@/lib/date';
 import {
   getNotificationPermissionState,
   requestNotificationPermission,
@@ -23,10 +24,9 @@ import {
 } from '@/lib/pwa';
 import { DEFAULT_BOARD_TITLE } from '@/lib/sharing';
 import {
-  hashJournalPin,
   isDevAdminEmail,
-  isHashedPin,
   isLikelyServiceRoleKey,
+  rotateNotesPinEncryption,
   sanitizeText,
   validateBackupPayload,
   validateSafeHttpUrl,
@@ -38,6 +38,7 @@ import type {
   CatyStoreData,
   CloudConfig,
   FontStyle,
+  NoteItem,
   UserProfile,
 } from '@/types/catyboard';
 
@@ -48,7 +49,10 @@ interface SyncSettingsModalProps {
   userEmail: string | null;
   cloudConfig: CloudConfig;
   syncStatus: string;
-  onUpdateProfile: (patch: Partial<UserProfile>) => void;
+  onUpdateProfile: (
+    patch: Partial<UserProfile>,
+    rotatedNotes?: { updatedNotes: NoteItem[]; changedNotes: NoteItem[] }
+  ) => void;
   onSaveDevCloudConfig: (cfg: CloudConfig) => void;
   onResetFreshBoard: () => void;
   onImportStore: (data: CatyStoreData) => void;
@@ -83,9 +87,14 @@ export function SyncSettingsModal({
   const [fontStyle, setFontStyle] = useState<FontStyle>(
     store.profile.fontStyle || 'rounded'
   );
-  const [budget, setBudget] = useState(String(store.profile.monthlyBudget));
+  const [budget, setBudget] = useState(() =>
+    formatVndInput(String(store.profile.monthlyBudget))
+  );
+  const [currentPinDraft, setCurrentPinDraft] = useState('');
   const [pinDraft, setPinDraft] = useState('');
   const [clearPinRequested, setClearPinRequested] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const [savingPrefs, setSavingPrefs] = useState(false);
   const hasExistingPin = Boolean(store.profile.journalPin);
 
   // Developer-only state (strictly guarded by isDevUser)
@@ -115,6 +124,7 @@ export function SyncSettingsModal({
   };
 
   const handleSavePrefs = async (): Promise<boolean> => {
+    setPinError('');
     if (isDevUser) {
       setConfigError('');
       if (
@@ -137,28 +147,47 @@ export function SyncSettingsModal({
       });
     }
 
-    let nextPin = store.profile.journalPin;
-    if (clearPinRequested) {
-      nextPin = undefined;
-    } else if (pinDraft.trim()) {
-      nextPin = await hashJournalPin(pinDraft.trim());
-    } else if (nextPin && !isHashedPin(nextPin)) {
-      nextPin = await hashJournalPin(nextPin);
-    }
+    setSavingPrefs(true);
+    try {
+      const pinRes = await rotateNotesPinEncryption({
+        notes: store.notes,
+        storedPinHash: store.profile.journalPin,
+        currentPin: currentPinDraft,
+        newPin: pinDraft,
+        clearPin: clearPinRequested,
+        activeRole: store.sharing.activeRole,
+      });
 
-    onUpdateProfile({
-      boardTitle: sanitizeText(boardTitle, 40) || DEFAULT_BOARD_TITLE,
-      catName: sanitizeText(catName, 30) || 'Mochi',
-      catStyle,
-      boardTexture,
-      fontStyle,
-      monthlyBudget: Math.min(
-        100_000_000_000,
-        Number(budget.replace(/[^\d]/g, '')) || 8000000
-      ),
-      journalPin: nextPin,
-    });
-    return true;
+      if (!pinRes.ok) {
+        setPinError(pinRes.reason);
+        return false;
+      }
+
+      const parsedBudget = parseVndInput(budget);
+      onUpdateProfile(
+        {
+          boardTitle: sanitizeText(boardTitle, 40) || DEFAULT_BOARD_TITLE,
+          catName: sanitizeText(catName, 30) || 'Mochi',
+          catStyle,
+          boardTexture,
+          fontStyle,
+          monthlyBudget: parsedBudget > 0 ? parsedBudget : 8000000,
+          journalPin: pinRes.nextPinHash,
+        },
+        pinRes.changedNotes.length > 0
+          ? {
+              updatedNotes: pinRes.updatedNotes,
+              changedNotes: pinRes.changedNotes,
+            }
+          : undefined
+      );
+      setCurrentPinDraft('');
+      setPinDraft('');
+      setClearPinRequested(false);
+      return true;
+    } finally {
+      setSavingPrefs(false);
+    }
   };
 
   const exportBackup = () => {
@@ -315,8 +344,10 @@ export function SyncSettingsModal({
                 <span className="font-bold">Hạn mức chi tiêu tháng (VNĐ)</span>
                 <input
                   type="text"
+                  inputMode="numeric"
                   value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
+                  onChange={(e) => setBudget(formatVndInput(e.target.value))}
+                  placeholder="8.000.000"
                   className="mt-1 w-full rounded-xl border border-[#d6c09d] bg-white px-3 py-1.5"
                 />
               </label>
@@ -344,37 +375,62 @@ export function SyncSettingsModal({
                   <option value="handwriting">Chữ viết tay</option>
                 </select>
               </label>
-              <label className="text-xs sm:col-span-2">
-                <span className="flex items-center justify-between gap-2 font-bold">
-                  <span>Mã PIN khóa Tâm thư</span>
-                  {hasExistingPin && !clearPinRequested && (
+              <div className="space-y-2 text-xs sm:col-span-2">
+                <div className="flex items-center justify-between gap-2 font-bold">
+                  <span>Mã PIN khóa riêng tư</span>
+                  {hasExistingPin && (
                     <button
                       type="button"
                       onClick={() => {
-                        setClearPinRequested(true);
+                        setClearPinRequested((prev) => !prev);
                         setPinDraft('');
+                        setPinError('');
                       }}
                       className="text-[11px] font-bold text-[#b54852] underline"
                     >
-                      Gỡ mã PIN
+                      {clearPinRequested ? 'Hủy gỡ mã PIN' : 'Gỡ mã PIN'}
                     </button>
                   )}
-                </span>
-                <input
-                  type="password"
-                  value={pinDraft}
-                  onChange={(e) => {
-                    setPinDraft(e.target.value);
-                    setClearPinRequested(false);
-                  }}
-                  placeholder={
-                    hasExistingPin && !clearPinRequested
-                      ? 'Đã đặt mã PIN ✓ (nhập mới nếu muốn đổi)'
-                      : 'Nhập mã PIN mới (để trống nếu không cần khóa)'
-                  }
-                  className="mt-1 w-full rounded-xl border border-[#d6c09d] bg-white px-3 py-1.5"
-                />
-              </label>
+                </div>
+
+                {hasExistingPin && (clearPinRequested || pinDraft.trim().length > 0) && (
+                  <input
+                    type="password"
+                    value={currentPinDraft}
+                    onChange={(e) => {
+                      setCurrentPinDraft(e.target.value);
+                      setPinError('');
+                    }}
+                    placeholder={
+                      clearPinRequested
+                        ? 'Nhập mã PIN hiện tại để xác nhận gỡ khóa...'
+                        : 'Nhập mã PIN hiện tại để xác nhận đổi sang PIN mới...'
+                    }
+                    className="w-full rounded-xl border border-[#c5892f] bg-[#fffaf0] px-3 py-1.5 outline-none"
+                  />
+                )}
+
+                {!clearPinRequested && (
+                  <input
+                    type="password"
+                    value={pinDraft}
+                    onChange={(e) => {
+                      setPinDraft(e.target.value);
+                      setPinError('');
+                    }}
+                    placeholder={
+                      hasExistingPin
+                        ? 'Đã bật mã PIN (nhập PIN mới tại đây nếu muốn đổi)'
+                        : 'Nhập mã PIN mới (để trống nếu không cần khóa)'
+                    }
+                    className="w-full rounded-xl border border-[#d6c09d] bg-white px-3 py-1.5 outline-none"
+                  />
+                )}
+
+                {pinError && (
+                  <p className="text-[11px] font-bold text-[#c54650]">{pinError}</p>
+                )}
+              </div>
             </div>
           </section>
 
@@ -526,14 +582,15 @@ export function SyncSettingsModal({
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
+            disabled={savingPrefs}
             onClick={() => {
               void handleSavePrefs().then((ok) => {
                 if (ok) onClose();
               });
             }}
-            className="rounded-2xl bg-[#423022] px-5 py-2 text-xs font-extrabold text-[#faf3e3] shadow-sm hover:opacity-90"
+            className="rounded-2xl bg-[#423022] px-5 py-2 text-xs font-extrabold text-[#faf3e3] shadow-sm hover:opacity-90 disabled:opacity-60"
           >
-            Lưu thay đổi
+            {savingPrefs ? 'Đang xử lý...' : 'Lưu thay đổi'}
           </button>
         </div>
       </div>

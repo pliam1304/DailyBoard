@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   Camera,
@@ -47,6 +47,94 @@ const LiveCameraModal = dynamic(
 );
 
 const QUICK_REACTIONS = ['❤️', '🐾', '🥰', '😂', '🌸'];
+
+function PolaroidCaptionInput({
+  value,
+  frameColor,
+  fontStyle,
+  onCommit,
+}: {
+  value: string;
+  frameColor?: PolaroidFrameColor;
+  fontStyle?: FontStyle;
+  onCommit: (nextCaption: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const focusedRef = useRef(false);
+  const latestDraftRef = useRef(value);
+  const committedRef = useRef(value);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCommitRef = useRef(onCommit);
+
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
+
+  useEffect(() => {
+    if (!focusedRef.current) {
+      setDraft(value);
+      latestDraftRef.current = value;
+      committedRef.current = value;
+    }
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        if (latestDraftRef.current !== committedRef.current) {
+          onCommitRef.current(latestDraftRef.current);
+        }
+      }
+    };
+  }, []);
+
+  const flushNow = (nextVal: string) => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (nextVal !== committedRef.current) {
+      committedRef.current = nextVal;
+      onCommitRef.current(nextVal);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      onChange={(e) => {
+        const nextVal = e.target.value;
+        setDraft(nextVal);
+        latestDraftRef.current = nextVal;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          if (nextVal !== committedRef.current) {
+            committedRef.current = nextVal;
+            onCommitRef.current(nextVal);
+          }
+        }, 420);
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        flushNow(latestDraftRef.current);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur();
+        }
+      }}
+      className={`mt-2.5 w-full bg-transparent text-center text-sm font-bold outline-none focus:underline ${
+        frameColor === 'film-black' ? 'text-[#f4ebd9]' : 'text-[#382619]'
+      } ${fontStyle === 'handwriting' ? 'font-handwriting-soft text-base' : ''}`}
+    />
+  );
+}
 
 interface PolaroidGalleryProps {
   entryDate: string;
@@ -545,21 +633,13 @@ export function PolaroidGallery({
                       )}
                     </button>
 
-                    <input
-                      type="text"
+                    <PolaroidCaptionInput
                       value={photo.caption}
-                      onChange={(e) =>
-                        onUpdatePhoto(photo.id, { caption: e.target.value })
+                      frameColor={photo.frameColor}
+                      fontStyle={fontStyle}
+                      onCommit={(nextCaption) =>
+                        onUpdatePhoto(photo.id, { caption: nextCaption })
                       }
-                      className={`mt-2.5 w-full bg-transparent text-center text-sm font-bold outline-none focus:underline ${
-                        photo.frameColor === 'film-black'
-                          ? 'text-[#f4ebd9]'
-                          : 'text-[#382619]'
-                      } ${
-                        fontStyle === 'handwriting'
-                          ? 'font-handwriting-soft text-base'
-                          : ''
-                      }`}
                     />
 
                     {/* Emoji Reaction Bar + Flip Backside + Sticky Comment Trigger */}

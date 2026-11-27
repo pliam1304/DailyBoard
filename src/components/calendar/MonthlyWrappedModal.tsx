@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { toPng } from 'html-to-image';
 import { Download, X } from 'lucide-react';
 import { formatMonthTitleVi, formatVnd } from '@/lib/date';
+import { exportScrapbookNodeToPng } from '@/lib/snapshotExport';
 import { computeMonthlyWrapped } from '@/lib/prompts';
 import { getMemberNickname, isSharedDuo } from '@/lib/sharing';
 import {
@@ -66,10 +66,7 @@ export function MonthlyWrappedModal({
     if (!posterRef.current) return;
     setExporting(true);
     try {
-      const dataUrl = await toPng(posterRef.current, {
-        cacheBust: true,
-        pixelRatio: 2,
-      });
+      const dataUrl = await exportScrapbookNodeToPng(posterRef.current, 2);
       const link = document.createElement('a');
       link.download = `${store.profile.boardTitle.toLowerCase()}-wrapped-${yearMonth}.png`;
       link.href = dataUrl;

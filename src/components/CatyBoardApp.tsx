@@ -20,6 +20,7 @@ import {
   MoonStar,
   Music,
   NotebookPen,
+  RotateCcw,
   Search,
   Settings,
   Shield,
@@ -81,6 +82,7 @@ import {
   saveDevCloudConfig,
   saveLocalAccounts,
   saveStore,
+  scheduleSaveStore,
   setActiveLocalUserEmail,
 } from '@/lib/storage';
 import {
@@ -256,10 +258,18 @@ export function CatyBoardApp() {
   const [urlInviteCode, setUrlInviteCode] = useState<string>('');
   const [onlineMembers, setOnlineMembers] = useState<OnlineMemberPresence[]>([]);
   const [heartToast, setHeartToast] = useState<string | null>(null);
+  const [undoToast, setUndoToast] = useState<
+    | { label: string; kind: 'reminder'; item: ReminderItem }
+    | { label: string; kind: 'finance'; item: FinanceEntry }
+    | { label: string; kind: 'note'; item: NoteItem }
+    | { label: string; kind: 'voice'; item: VoiceMemo }
+    | null
+  >(null);
   const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [recoveryMsg, setRecoveryMsg] = useState('');
 
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
   const notifiedRemindersRef = useRef<Set<string>>(new Set());
   const hydratedUserIdRef = useRef<string | null>(null);
@@ -459,7 +469,12 @@ export function CatyBoardApp() {
       }
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      if (undoTimerRef.current) {
+        clearTimeout(undoTimerRef.current);
+      }
+    };
   }, []);
 
   const updateStore = useCallback(
@@ -467,7 +482,7 @@ export function CatyBoardApp() {
       setStore((prev) => {
         if (!prev) return prev;
         const next = updater(prev);
-        void saveStore(next, activeAccountEmail);
+        scheduleSaveStore(next, activeAccountEmail);
         return next;
       });
     },
@@ -1108,18 +1123,117 @@ export function CatyBoardApp() {
     .filter((f) => f.type === 'expense')
     .reduce((acc, f) => acc + f.amount, 0);
 
-  const updateProfileWithSync = (patch: Partial<UserProfile>) => {
+  const showUndoToast = (
+    payload:
+      | { label: string; kind: 'reminder'; item: ReminderItem }
+      | { label: string; kind: 'finance'; item: FinanceEntry }
+      | { label: string; kind: 'note'; item: NoteItem }
+      | { label: string; kind: 'voice'; item: VoiceMemo }
+  ) => {
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+    }
+    setUndoToast(payload);
+    undoTimerRef.current = setTimeout(() => {
+      setUndoToast(null);
+      undoTimerRef.current = null;
+    }, 5000);
+  };
+
+  const handleUndoDelete = () => {
+    if (!undoToast) return;
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    const target = undoToast;
+    setUndoToast(null);
+
+    if (target.kind === 'reminder') {
+      updateStore((prev) => ({
+        ...prev,
+        reminders: prev.reminders.some((r) => r.id === target.item.id)
+          ? prev.reminders
+          : [...prev.reminders, target.item],
+      }));
+      queueSync({
+        id: `rem-${target.item.id}`,
+        kind: 'upsert_reminder',
+        reminder: target.item,
+      });
+    } else if (target.kind === 'finance') {
+      updateStore((prev) => ({
+        ...prev,
+        finance: prev.finance.some((f) => f.id === target.item.id)
+          ? prev.finance
+          : [target.item, ...prev.finance],
+      }));
+      queueSync({
+        id: `fin-${target.item.id}`,
+        kind: 'upsert_finance',
+        finance: target.item,
+      });
+    } else if (target.kind === 'note') {
+      updateStore((prev) => ({
+        ...prev,
+        notes: prev.notes.some((n) => n.id === target.item.id)
+          ? prev.notes
+          : [target.item, ...prev.notes],
+      }));
+      queueSync({
+        id: `note-${target.item.id}`,
+        kind: 'upsert_note',
+        note: target.item,
+      });
+    } else if (target.kind === 'voice') {
+      updateStore((prev) => ({
+        ...prev,
+        voiceMemos: (prev.voiceMemos ?? []).some((v) => v.id === target.item.id)
+          ? prev.voiceMemos
+          : [target.item, ...(prev.voiceMemos ?? [])],
+      }));
+      queueSync({
+        id: `voice-${target.item.id}`,
+        kind: 'upsert_voice',
+        voice: target.item,
+      });
+    }
+  };
+
+  const updateProfileWithSync = (
+    patch: Partial<UserProfile>,
+    rotatedNotes?: { updatedNotes: NoteItem[]; changedNotes: NoteItem[] }
+  ) => {
     const nextProfile: UserProfile = { ...store.profile, ...patch };
-    updateStore((prev) => ({
-      ...prev,
-      profile: nextProfile,
-    }));
+    setStore((prev) => {
+      if (!prev) return prev;
+      const next: CatyStoreData = {
+        ...prev,
+        profile: nextProfile,
+        notes: rotatedNotes ? rotatedNotes.updatedNotes : prev.notes,
+      };
+      if (rotatedNotes) {
+        void saveStore(next, activeAccountEmail);
+      } else {
+        scheduleSaveStore(next, activeAccountEmail);
+      }
+      return next;
+    });
     queueSync({
       id: 'board-meta',
       kind: 'upsert_board',
       profile: nextProfile,
       syncedTrack: store.syncedTrack,
     });
+    if (rotatedNotes) {
+      for (const changed of rotatedNotes.changedNotes) {
+        queueSync({
+          id: `note-${changed.id}`,
+          kind: 'upsert_note',
+          note: changed,
+        });
+      }
+    }
   };
 
   const updateDayEntry = (patch: Partial<typeof dayEntry>) => {
@@ -1202,11 +1316,19 @@ export function CatyBoardApp() {
   };
 
   const handleDeleteNote = (id: string) => {
+    const removed = store.notes.find((n) => n.id === id);
     updateStore((prev) => ({
       ...prev,
       notes: prev.notes.filter((n) => n.id !== id),
     }));
     queueSync({ id: `note-${id}`, kind: 'delete_note', itemId: id });
+    if (removed && !isPureCapsuleNote(removed)) {
+      showUndoToast({
+        label: 'Đã xóa ghi chú',
+        kind: 'note',
+        item: removed,
+      });
+    }
   };
 
   const handleAddReminder = (item: ReminderItem) => {
@@ -1259,11 +1381,19 @@ export function CatyBoardApp() {
 
   const handleDeleteReminder = (id: string) => {
     if (id.startsWith('rec-')) return;
+    const removed = store.reminders.find((r) => r.id === id);
     updateStore((prev) => ({
       ...prev,
       reminders: prev.reminders.filter((r) => r.id !== id),
     }));
     queueSync({ id: `rem-${id}`, kind: 'delete_reminder', itemId: id });
+    if (removed) {
+      showUndoToast({
+        label: 'Đã xóa lời nhắc',
+        kind: 'reminder',
+        item: removed,
+      });
+    }
   };
 
   const handleAddFinance = (item: FinanceEntry) => {
@@ -1275,12 +1405,31 @@ export function CatyBoardApp() {
     queueSync({ id: `fin-${item.id}`, kind: 'upsert_finance', finance: item });
   };
 
+  const handleUpdateFinance = (id: string, patch: Partial<FinanceEntry>) => {
+    const existing = store.finance.find((f) => f.id === id);
+    if (!existing) return;
+    const updated: FinanceEntry = { ...existing, ...patch };
+    updateStore((prev) => ({
+      ...prev,
+      finance: prev.finance.map((f) => (f.id === id ? updated : f)),
+    }));
+    queueSync({ id: `fin-${id}`, kind: 'upsert_finance', finance: updated });
+  };
+
   const handleDeleteFinance = (id: string) => {
+    const removed = store.finance.find((f) => f.id === id);
     updateStore((prev) => ({
       ...prev,
       finance: prev.finance.filter((f) => f.id !== id),
     }));
     queueSync({ id: `fin-${id}`, kind: 'delete_finance', itemId: id });
+    if (removed) {
+      showUndoToast({
+        label: 'Đã xóa khoản chi',
+        kind: 'finance',
+        item: removed,
+      });
+    }
   };
 
   const handleAddVoiceMemo = (memo: VoiceMemo) => {
@@ -1293,11 +1442,19 @@ export function CatyBoardApp() {
   };
 
   const handleDeleteVoiceMemo = (id: string) => {
+    const removed = (store.voiceMemos ?? []).find((v) => v.id === id);
     updateStore((prev) => ({
       ...prev,
       voiceMemos: (prev.voiceMemos ?? []).filter((v) => v.id !== id),
     }));
     queueSync({ id: `voice-${id}`, kind: 'delete_voice', itemId: id });
+    if (removed) {
+      showUndoToast({
+        label: 'Đã xóa thu âm',
+        kind: 'voice',
+        item: removed,
+      });
+    }
   };
 
   const handleSelectTrack = (trk: MusicTrack | null) => {
@@ -1522,6 +1679,30 @@ export function CatyBoardApp() {
         <div className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-2xl border-2 border-[#f0b4bf] bg-[#fff5f7] px-4 py-2.5 text-xs font-extrabold text-[#8a3240] shadow-xl animate-bounce">
           <Heart className="h-4 w-4 fill-[#ef7b8d] text-[#ef7b8d]" />
           {heartToast}
+        </div>
+      )}
+
+      {undoToast && (
+        <div className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-2xl border border-[#6e523a] bg-[#2a1f17]/95 px-4 py-2.5 text-xs font-bold text-[#f7ecd8] shadow-2xl backdrop-blur-md md:bottom-6">
+          <span>{undoToast.label}</span>
+          <button
+            type="button"
+            onClick={handleUndoDelete}
+            className="inline-flex items-center gap-1 rounded-xl bg-[#ffd978] px-2.5 py-1 text-[11px] font-extrabold text-[#382619] transition hover:bg-[#ffe49c]"
+          >
+            <RotateCcw className="h-3 w-3" /> Hoàn tác
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+              setUndoToast(null);
+            }}
+            aria-label="Đóng thông báo"
+            className="rounded-full p-0.5 opacity-70 hover:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
 
@@ -2206,6 +2387,7 @@ export function CatyBoardApp() {
                       sharing={store.sharing}
                       theme={theme}
                       onAddFinance={handleAddFinance}
+                      onUpdateFinance={handleUpdateFinance}
                       onDeleteFinance={handleDeleteFinance}
                       onUpdateSavingGoal={(savingGoal: SavingGoal) =>
                         updateProfileWithSync({ savingGoal })

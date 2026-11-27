@@ -1,5 +1,5 @@
 import { DEFAULT_BOARD_TITLE, normalizeStoreData } from './sharing.ts';
-import type { CatyStoreData } from '@/types/catyboard';
+import type { CatyStoreData, MemberRole, NoteItem } from '@/types/catyboard';
 
 const CONTROL_CHARS_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -283,6 +283,173 @@ export async function decryptPrivateContent(
   }
 }
 
+/**
+ * Safely verifies the current PIN (when one already exists) and atomically
+ * re-encrypts or decrypts all private notes/capsules so changing or removing a PIN
+ * never strands previously encrypted memories.
+ */
+export async function rotateNotesPinEncryption(options: {
+  notes: NoteItem[];
+  storedPinHash?: string;
+  currentPin?: string;
+  newPin?: string;
+  clearPin?: boolean;
+  activeRole?: MemberRole;
+}): Promise<
+  | {
+      ok: true;
+      nextPinHash: string | undefined;
+      updatedNotes: NoteItem[];
+      changedNotes: NoteItem[];
+    }
+  | { ok: false; reason: string }
+> {
+  const hasExistingPin = Boolean(options.storedPinHash);
+  const cleanedCurrent = sanitizeText(options.currentPin || '', 32);
+  const cleanedNew = sanitizeText(options.newPin || '', 32);
+
+  if (!options.clearPin && !cleanedNew) {
+    let nextHash = options.storedPinHash;
+    if (nextHash && !isHashedPin(nextHash)) {
+      nextHash = await hashJournalPin(nextHash);
+    }
+    return {
+      ok: true,
+      nextPinHash: nextHash,
+      updatedNotes: options.notes,
+      changedNotes: [],
+    };
+  }
+
+  if (hasExistingPin) {
+    const rate = checkRateLimit('journal_pin');
+    if (!rate.allowed) {
+      return {
+        ok: false,
+        reason: `Thử sai nhiều lần — vui lòng chờ ${rate.retryAfterSec}s.`,
+      };
+    }
+    if (!cleanedCurrent) {
+      return {
+        ok: false,
+        reason: options.clearPin
+          ? 'Nhập mã PIN hiện tại để xác nhận gỡ khóa.'
+          : 'Nhập mã PIN hiện tại trước khi đổi sang PIN mới.',
+      };
+    }
+    const valid = await verifyJournalPin(cleanedCurrent, options.storedPinHash);
+    if (!valid) {
+      const lim = recordRateLimitFailure('journal_pin');
+      return {
+        ok: false,
+        reason: lim.locked
+          ? `Mã PIN hiện tại chưa đúng — tạm khóa ${lim.retryAfterSec}s.`
+          : 'Mã PIN hiện tại chưa chính xác.',
+      };
+    }
+    resetRateLimit('journal_pin');
+  }
+
+  const isOwnedByActor = (note: NoteItem) =>
+    !options.activeRole ||
+    !note.authorRole ||
+    note.authorRole === options.activeRole;
+
+  // Phase 1: Decrypt all existing AES-256 notes first to guarantee zero data loss before mutating
+  const decryptedByNoteId = new Map<string, string>();
+  for (const note of options.notes) {
+    if (!isEncryptedContent(note.content)) continue;
+    if (!cleanedCurrent) {
+      if (isOwnedByActor(note)) {
+        return {
+          ok: false,
+          reason: 'Cần nhập mã PIN cũ để giải mã các ghi chú riêng tư hiện có.',
+        };
+      }
+      continue;
+    }
+    const plain = await decryptPrivateContent(note.content, cleanedCurrent);
+    if (plain === null) {
+      if (isOwnedByActor(note)) {
+        return {
+          ok: false,
+          reason:
+            'Không thể giải mã một số ghi chú riêng tư cũ bằng mã PIN này. Dữ liệu vẫn được giữ nguyên an toàn.',
+        };
+      }
+      continue;
+    }
+    decryptedByNoteId.set(note.id, plain);
+  }
+
+  // Phase 2: Re-encrypt with new PIN or restore plaintext when clearing PIN
+  const nowIso = new Date().toISOString();
+  const updatedNotes: NoteItem[] = [];
+  const changedNotes: NoteItem[] = [];
+
+  if (options.clearPin) {
+    for (const note of options.notes) {
+      if (decryptedByNoteId.has(note.id)) {
+        const nextNote: NoteItem = {
+          ...note,
+          content: decryptedByNoteId.get(note.id)!,
+          updatedAt: nowIso,
+        };
+        updatedNotes.push(nextNote);
+        changedNotes.push(nextNote);
+      } else {
+        updatedNotes.push(note);
+      }
+    }
+    return {
+      ok: true,
+      nextPinHash: undefined,
+      updatedNotes,
+      changedNotes,
+    };
+  }
+
+  const nextPinHash = await hashJournalPin(cleanedNew);
+  for (const note of options.notes) {
+    if (decryptedByNoteId.has(note.id)) {
+      const cipher = await encryptPrivateContent(
+        decryptedByNoteId.get(note.id)!,
+        cleanedNew
+      );
+      const nextNote: NoteItem = {
+        ...note,
+        content: cipher,
+        updatedAt: nowIso,
+      };
+      updatedNotes.push(nextNote);
+      changedNotes.push(nextNote);
+    } else if (
+      note.isPrivate &&
+      !isEncryptedContent(note.content) &&
+      note.content.trim().length > 0 &&
+      isOwnedByActor(note)
+    ) {
+      const cipher = await encryptPrivateContent(note.content, cleanedNew);
+      const nextNote: NoteItem = {
+        ...note,
+        content: cipher,
+        updatedAt: nowIso,
+      };
+      updatedNotes.push(nextNote);
+      changedNotes.push(nextNote);
+    } else {
+      updatedNotes.push(note);
+    }
+  }
+
+  return {
+    ok: true,
+    nextPinHash,
+    updatedNotes,
+    changedNotes,
+  };
+}
+
 // --- Client-side Rate Limiter for Login & PIN Unlock ---
 
 interface RateBucket {
@@ -384,7 +551,10 @@ export function validateBackupPayload(
   normalized.notes = normalized.notes.slice(0, 1000).map((n) => ({
     ...n,
     title: sanitizeText(n.title || '', 120),
-    content: sanitizeText(n.content || '', 10000),
+    content: sanitizeText(
+      n.content || '',
+      isEncryptedContent(n.content) ? 65000 : 12000
+    ),
   }));
 
   normalized.reminders = normalized.reminders.slice(0, 1000).map((r) => ({

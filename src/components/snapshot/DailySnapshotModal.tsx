@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { toPng } from 'html-to-image';
 import { Download, Eye, EyeOff, LayoutGrid, ReceiptText, Share2, X } from 'lucide-react';
 import { formatDisplayDateVi, formatVnd } from '@/lib/date';
+import { exportScrapbookNodeToPng } from '@/lib/snapshotExport';
 import {
   getMemberNickname,
   isSharedDuo,
@@ -127,10 +127,7 @@ export function DailySnapshotModal({
     if (!cardRef.current) return;
     setExporting(true);
     try {
-      const dataUrl = await toPng(cardRef.current, {
-        cacheBust: true,
-        pixelRatio: 2,
-      });
+      const dataUrl = await exportScrapbookNodeToPng(cardRef.current, 2);
       const link = document.createElement('a');
       link.download = `${profile.boardTitle.toLowerCase()}-${entryDate}-${layout}.png`;
       link.href = dataUrl;
@@ -144,10 +141,7 @@ export function DailySnapshotModal({
     if (!cardRef.current) return;
     setExporting(true);
     try {
-      const dataUrl = await toPng(cardRef.current, {
-        cacheBust: true,
-        pixelRatio: 2,
-      });
+      const dataUrl = await exportScrapbookNodeToPng(cardRef.current, 2);
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const fileName = `${profile.boardTitle.toLowerCase()}-${entryDate}-${layout}.png`;

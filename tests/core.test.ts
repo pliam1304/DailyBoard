@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { parseMusicUrl } from '../src/lib/media.ts';
 import {
   formatVnd,
+  formatVndInput,
   getMonthMatrix,
   parseDateKey,
+  parseVndInput,
   shiftDateKey,
   toLocalDateKey,
 } from '../src/lib/date.ts';
@@ -48,11 +50,16 @@ import {
   isLikelyServiceRoleKey,
   recordRateLimitFailure,
   resetRateLimit,
+  rotateNotesPinEncryption,
   validateBackupPayload,
   validateImageFile,
   validateSafeHttpUrl,
   verifyJournalPin,
 } from '../src/lib/security.ts';
+import {
+  mergeStoresPreservingMedia,
+  stripHeavyMediaForLocalStorage,
+} from '../src/lib/storage.ts';
 import {
   encodeCapsuleStyle,
   extractCapsulesFromNotes,
@@ -563,4 +570,179 @@ test('capsule metadata encoding, parsing, finishes, and streak shields work clea
   const details = calculateStreakDetails(shieldStore, '2026-11-26');
   assert.equal(details.usedShield, true);
   assert.equal(details.streak, 8);
+});
+
+test('Group 1 upgrades: VND live formatting, safe PIN rotation/removal, and slim storage media merge work cleanly', async () => {
+  // 1. Live VND dot separator input & parser
+  assert.equal(formatVndInput('45000'), '45.000');
+  assert.equal(formatVndInput('001250000đ'), '1.250.000');
+  assert.equal(formatVndInput(''), '');
+  assert.equal(parseVndInput('45.000'), 45000);
+  assert.equal(parseVndInput('1.250.000'), 1250000);
+
+  // 2. Safe PIN setup, rotation, and removal without stranding AES-256 notes/capsules
+  resetRateLimit('journal_pin');
+  const initialNotes = [
+    {
+      id: createUuid(),
+      entryDate: '2026-11-27',
+      kind: 'letter' as const,
+      title: 'Tâm thư riêng',
+      content: 'Bí mật đầu tiên trước khi đặt PIN',
+      paperStyle: 'blue-lined' as const,
+      isPrivate: true,
+      pinned: false,
+      authorRole: 'owner' as const,
+      createdAt: '2026-11-27T00:00:00.000Z',
+      updatedAt: '2026-11-27T00:00:00.000Z',
+    },
+    {
+      id: createUuid(),
+      entryDate: '2026-11-27',
+      kind: 'sticky' as const,
+      title: 'Ghi chú công khai',
+      content: 'Mua cà phê sáng',
+      paperStyle: 'cream-torn' as const,
+      isPrivate: false,
+      pinned: true,
+      authorRole: 'owner' as const,
+      createdAt: '2026-11-27T00:00:00.000Z',
+      updatedAt: '2026-11-27T00:00:00.000Z',
+    },
+  ];
+
+  // Setting PIN for the first time encrypts existing private notes automatically
+  const firstSetup = await rotateNotesPinEncryption({
+    notes: initialNotes,
+    newPin: '1357',
+    activeRole: 'owner',
+  });
+  assert.equal(firstSetup.ok, true);
+  if (!firstSetup.ok) return;
+  assert.ok(firstSetup.nextPinHash);
+  assert.equal(firstSetup.changedNotes.length, 1);
+  assert.equal(isEncryptedContent(firstSetup.updatedNotes[0].content), true);
+  assert.equal(firstSetup.updatedNotes[1].content, 'Mua cà phê sáng');
+
+  // Changing PIN without current PIN or with wrong current PIN is blocked safely
+  const blockedMissing = await rotateNotesPinEncryption({
+    notes: firstSetup.updatedNotes,
+    storedPinHash: firstSetup.nextPinHash,
+    currentPin: '',
+    newPin: '2468',
+    activeRole: 'owner',
+  });
+  assert.equal(blockedMissing.ok, false);
+
+  const blockedWrong = await rotateNotesPinEncryption({
+    notes: firstSetup.updatedNotes,
+    storedPinHash: firstSetup.nextPinHash,
+    currentPin: '9999',
+    newPin: '2468',
+    activeRole: 'owner',
+  });
+  assert.equal(blockedWrong.ok, false);
+  resetRateLimit('journal_pin');
+
+  // Changing PIN with valid current PIN re-encrypts all private notes to new PIN
+  const rotated = await rotateNotesPinEncryption({
+    notes: firstSetup.updatedNotes,
+    storedPinHash: firstSetup.nextPinHash,
+    currentPin: '1357',
+    newPin: '2468',
+    activeRole: 'owner',
+  });
+  assert.equal(rotated.ok, true);
+  if (!rotated.ok) return;
+  assert.equal(await verifyJournalPin('2468', rotated.nextPinHash), true);
+  assert.equal(
+    await decryptPrivateContent(rotated.updatedNotes[0].content, '1357'),
+    null
+  );
+  assert.equal(
+    await decryptPrivateContent(rotated.updatedNotes[0].content, '2468'),
+    'Bí mật đầu tiên trước khi đặt PIN'
+  );
+
+  // Clearing PIN requires current PIN and restores plaintext safely
+  const cleared = await rotateNotesPinEncryption({
+    notes: rotated.updatedNotes,
+    storedPinHash: rotated.nextPinHash,
+    currentPin: '2468',
+    clearPin: true,
+    activeRole: 'owner',
+  });
+  assert.equal(cleared.ok, true);
+  if (!cleared.ok) return;
+  assert.equal(cleared.nextPinHash, undefined);
+  assert.equal(isEncryptedContent(cleared.updatedNotes[0].content), false);
+  assert.equal(
+    cleared.updatedNotes[0].content,
+    'Bí mật đầu tiên trước khi đặt PIN'
+  );
+
+  // 3. Slim localStorage stripping & IndexedDB media re-hydration
+  const photoId = createUuid();
+  const voiceId = createUuid();
+  const fullMediaStore = normalizeStoreData({
+    version: 3,
+    photos: [
+      {
+        id: photoId,
+        entryDate: '2026-11-27',
+        dataUrl: 'data:image/webp;base64,FULL_IMAGE_PAYLOAD',
+        caption: 'Chú thích cũ',
+        washiStyle: 'mint-gingham',
+        rotationDeg: -1,
+        isCover: true,
+        comments: [
+          {
+            id: '__polaroid_back_voice__',
+            text: 'data:audio/webm;base64,FULL_BACK_AUDIO',
+            createdAt: '',
+          },
+        ],
+        createdAt: '',
+      },
+    ],
+    voiceMemos: [
+      {
+        id: voiceId,
+        entryDate: '2026-11-27',
+        title: 'Ghi âm tối',
+        dataUrl: 'data:audio/webm;base64,FULL_VOICE_MEMO',
+        durationSec: 8,
+        createdAt: '',
+      },
+    ],
+  });
+
+  const stripped = stripHeavyMediaForLocalStorage(fullMediaStore);
+  assert.equal(stripped.photos[0].dataUrl, '');
+  assert.equal(stripped.photos[0].comments?.[0].text, '__idb_audio__');
+  assert.equal(stripped.voiceMemos?.[0].dataUrl, '');
+
+  // Simulate user editing caption on the slim metadata snapshot before IDB finishes
+  const editedSlim = {
+    ...stripped,
+    photos: stripped.photos.map((p) => ({
+      ...p,
+      caption: 'Chú thích mới vừa gõ',
+    })),
+  };
+
+  const rehydrated = mergeStoresPreservingMedia(editedSlim, fullMediaStore);
+  assert.equal(rehydrated.photos[0].caption, 'Chú thích mới vừa gõ');
+  assert.equal(
+    rehydrated.photos[0].dataUrl,
+    'data:image/webp;base64,FULL_IMAGE_PAYLOAD'
+  );
+  assert.equal(
+    rehydrated.photos[0].comments?.[0].text,
+    'data:audio/webm;base64,FULL_BACK_AUDIO'
+  );
+  assert.equal(
+    rehydrated.voiceMemos?.[0].dataUrl,
+    'data:audio/webm;base64,FULL_VOICE_MEMO'
+  );
 });

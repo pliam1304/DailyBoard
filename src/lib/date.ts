@@ -71,3 +71,20 @@ export function formatMonthTitleVi(year: number, monthIndex: number): string {
 export function formatVnd(amount: number): string {
   return `${Math.round(amount).toLocaleString('vi-VN')}đ`;
 }
+
+/**
+ * Formats a numeric input string with Vietnamese dot thousand separators while typing
+ * (e.g. "45000" -> "45.000", "1250000" -> "1.250.000").
+ */
+export function formatVndInput(raw: string): string {
+  const digits = raw.replace(/[^\d]/g, '').replace(/^0+/, '').slice(0, 12);
+  if (!digits) return '';
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+export function parseVndInput(raw: string): number {
+  const digits = raw.replace(/[^\d]/g, '').slice(0, 12);
+  if (!digits) return 0;
+  const num = Number(digits);
+  return Number.isFinite(num) ? Math.min(100_000_000_000, num) : 0;
+}

@@ -10,8 +10,9 @@ import {
   Trash2,
   TrendingDown,
   TrendingUp,
+  X,
 } from 'lucide-react';
-import { formatVnd } from '@/lib/date';
+import { formatVnd, formatVndInput, parseVndInput } from '@/lib/date';
 import { createUuid } from '@/lib/sharing';
 import { AuthorBadge } from '@/components/decor/ScrapbookDecor';
 import type {
@@ -33,6 +34,7 @@ interface FinancePanelProps {
   sharing: BoardSharingState;
   theme: ThemeMode;
   onAddFinance: (item: FinanceEntry) => void;
+  onUpdateFinance?: (id: string, patch: Partial<FinanceEntry>) => void;
   onDeleteFinance: (id: string) => void;
   onUpdateSavingGoal: (goal: SavingGoal) => void;
 }
@@ -64,6 +66,7 @@ export function FinancePanel({
   sharing,
   theme,
   onAddFinance,
+  onUpdateFinance,
   onDeleteFinance,
   onUpdateSavingGoal,
 }: FinancePanelProps) {
@@ -74,9 +77,17 @@ export function FinancePanel({
   const [note, setNote] = useState('');
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalTitleDraft, setGoalTitleDraft] = useState(savingGoal.title);
-  const [goalTargetDraft, setGoalTargetDraft] = useState(
-    String(savingGoal.targetAmount)
+  const [goalTargetDraft, setGoalTargetDraft] = useState(() =>
+    formatVndInput(String(savingGoal.targetAmount))
   );
+
+  // Inline Edit State for Existing Finance Entries
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [editType, setEditType] = useState<FinanceType>('expense');
+  const [editAmountRaw, setEditAmountRaw] = useState('');
+  const [editCategory, setEditCategory] = useState<FinanceCategory>('coffee');
+  const [editMoodTag, setEditMoodTag] = useState<FinanceMoodTag>('essential');
+  const [editNote, setEditNote] = useState('');
 
   const isNight = theme === 'cozy-night';
   const monthPrefix = entryDate.slice(0, 7);
@@ -111,7 +122,7 @@ export function FinancePanel({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleaned = Number(amountRaw.replace(/[^\d]/g, ''));
+    const cleaned = parseVndInput(amountRaw);
     if (!cleaned || cleaned <= 0) return;
 
     onAddFinance({
@@ -127,6 +138,38 @@ export function FinancePanel({
     });
     setAmountRaw('');
     setNote('');
+  };
+
+  const beginEditEntry = (item: FinanceEntry) => {
+    setEditingEntryId(item.id);
+    setEditType(item.type);
+    setEditAmountRaw(formatVndInput(String(item.amount)));
+    setEditCategory(item.category);
+    setEditMoodTag(item.moodTag);
+    setEditNote(item.note);
+  };
+
+  const commitEditEntry = (item: FinanceEntry) => {
+    if (!onUpdateFinance) return;
+    const cleaned = parseVndInput(editAmountRaw);
+    if (!cleaned || cleaned <= 0) return;
+    const effectiveCategory: FinanceCategory =
+      editType === 'saving'
+        ? 'saving'
+        : editType === 'income'
+          ? 'salary'
+          : editCategory;
+    onUpdateFinance(item.id, {
+      type: editType,
+      amount: cleaned,
+      category: effectiveCategory,
+      moodTag: editMoodTag,
+      note:
+        editNote.trim() ||
+        CATEGORIES.find((c) => c.id === effectiveCategory)?.label ||
+        item.note,
+    });
+    setEditingEntryId(null);
   };
 
   return (
@@ -217,7 +260,9 @@ export function FinancePanel({
                   type="text"
                   inputMode="numeric"
                   value={goalTargetDraft}
-                  onChange={(e) => setGoalTargetDraft(e.target.value)}
+                  onChange={(e) =>
+                    setGoalTargetDraft(formatVndInput(e.target.value))
+                  }
                   placeholder="Số tiền"
                   className="w-28 rounded-lg border border-[#a5cca9] bg-white px-2 py-1 text-[#214f2d]"
                 />
@@ -227,8 +272,7 @@ export function FinancePanel({
                     onUpdateSavingGoal({
                       ...savingGoal,
                       title: goalTitleDraft.trim() || 'Hũ tiết kiệm của mèo',
-                      targetAmount:
-                        Number(goalTargetDraft.replace(/[^\d]/g, '')) || 5000000,
+                      targetAmount: parseVndInput(goalTargetDraft) || 5000000,
                     });
                     setEditingGoal(false);
                   }}
@@ -249,7 +293,9 @@ export function FinancePanel({
                   type="button"
                   onClick={() => {
                     setGoalTitleDraft(savingGoal.title);
-                    setGoalTargetDraft(String(savingGoal.targetAmount));
+                    setGoalTargetDraft(
+                      formatVndInput(String(savingGoal.targetAmount))
+                    );
                     setEditingGoal(true);
                   }}
                   aria-label="Sửa mục tiêu tiết kiệm"
@@ -314,24 +360,62 @@ export function FinancePanel({
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={amountRaw}
-            onChange={(e) => setAmountRaw(e.target.value)}
-            placeholder="Số tiền (vd: 45000)"
-            className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${
-              isNight
-                ? 'border-[#5a4230] bg-[#3a2b20] text-[#f6ead7]'
-                : 'border-[#dfc8a8] bg-white text-[#423022]'
-            }`}
-          />
+          <div className="space-y-1.5">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={amountRaw}
+              onChange={(e) => setAmountRaw(formatVndInput(e.target.value))}
+              placeholder="Số tiền (vd: 45.000)"
+              className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${
+                isNight
+                  ? 'border-[#5a4230] bg-[#3a2b20] text-[#f6ead7]'
+                  : 'border-[#dfc8a8] bg-white text-[#423022]'
+              }`}
+            />
+            <div className="flex flex-wrap gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const digits = amountRaw.replace(/[^\d]/g, '');
+                  if (digits) {
+                    setAmountRaw(formatVndInput(`${digits}000`));
+                  }
+                }}
+                className={`rounded-lg px-2 py-0.5 text-[10px] font-extrabold transition ${
+                  isNight
+                    ? 'bg-[#3b2d22] text-[#eadbc6] hover:bg-[#4a392b]'
+                    : 'bg-[#efe2cc] text-[#4c3625] hover:bg-[#e5d4b7]'
+                }`}
+              >
+                +000
+              </button>
+              {[
+                { label: '25k', val: '25000' },
+                { label: '50k', val: '50000' },
+                { label: '100k', val: '100000' },
+              ].map((chip) => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  onClick={() => setAmountRaw(formatVndInput(chip.val))}
+                  className={`rounded-lg px-2 py-0.5 text-[10px] font-bold transition ${
+                    isNight
+                      ? 'bg-[#3b2d22] text-[#dfd0bc] hover:bg-[#4a392b]'
+                      : 'bg-[#f4ead8] text-[#5c4430] hover:bg-[#eadbc2]'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <input
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Ghi chú (vd: Trà sữa với bạn)"
-            className={`rounded-xl border px-3 py-2 text-xs outline-none sm:col-span-2 ${
+            className={`self-start rounded-xl border px-3 py-2 text-xs outline-none sm:col-span-2 ${
               isNight
                 ? 'border-[#5a4230] bg-[#3a2b20] text-[#f6ead7]'
                 : 'border-[#dfc8a8] bg-white text-[#423022]'
@@ -404,6 +488,135 @@ export function FinancePanel({
             {dayEntries.map((item) => {
               const cat = CATEGORIES.find((c) => c.id === item.category);
               const mood = MOOD_TAGS.find((m) => m.id === item.moodTag);
+              const isEditing = editingEntryId === item.id;
+
+              if (isEditing) {
+                return (
+                  <div
+                    key={item.id}
+                    className={`space-y-2 rounded-2xl border-2 p-3 text-xs ${
+                      isNight
+                        ? 'border-[#8c694a] bg-[#36281f]'
+                        : 'border-[#c89d6d] bg-[#fffaf0]'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex flex-wrap gap-1">
+                        {(
+                          [
+                            { id: 'expense', label: 'Chi tiêu' },
+                            { id: 'saving', label: 'Tiết kiệm' },
+                            { id: 'income', label: 'Thu nhập' },
+                          ] as { id: FinanceType; label: string }[]
+                        ).map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setEditType(t.id)}
+                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${
+                              editType === t.id
+                                ? t.id === 'expense'
+                                  ? 'bg-[#b54852] text-white'
+                                  : t.id === 'saving'
+                                    ? 'bg-[#3d7c57] text-white'
+                                    : 'bg-[#3a75a8] text-white'
+                                : 'bg-black/10 opacity-75'
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingEntryId(null)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-black/10 px-2.5 py-1 text-[11px] font-bold"
+                        >
+                          <X className="h-3 w-3" /> Hủy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => commitEditEntry(item)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-[#3d7c57] px-2.5 py-1 text-[11px] font-extrabold text-white"
+                        >
+                          <Check className="h-3 w-3" /> Lưu
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={editAmountRaw}
+                        onChange={(e) =>
+                          setEditAmountRaw(formatVndInput(e.target.value))
+                        }
+                        placeholder="Số tiền"
+                        className={`rounded-xl border px-2.5 py-1.5 font-bold outline-none ${
+                          isNight
+                            ? 'border-[#5a4230] bg-[#261c15] text-[#f6ead7]'
+                            : 'border-[#dfc8a8] bg-white text-[#423022]'
+                        }`}
+                      />
+                      <input
+                        type="text"
+                        value={editNote}
+                        onChange={(e) => setEditNote(e.target.value)}
+                        placeholder="Ghi chú..."
+                        className={`rounded-xl border px-2.5 py-1.5 outline-none sm:col-span-2 ${
+                          isNight
+                            ? 'border-[#5a4230] bg-[#261c15] text-[#f6ead7]'
+                            : 'border-[#dfc8a8] bg-white text-[#423022]'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      {editType === 'expense' && (
+                        <div className="flex flex-wrap gap-1">
+                          {CATEGORIES.filter(
+                            (c) => c.id !== 'saving' && c.id !== 'salary'
+                          ).map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => setEditCategory(c.id)}
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                editCategory === c.id
+                                  ? 'bg-[#b57a29] font-bold text-white'
+                                  : 'bg-black/10'
+                              }`}
+                            >
+                              {c.emoji} {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <select
+                        value={editMoodTag}
+                        onChange={(e) =>
+                          setEditMoodTag(e.target.value as FinanceMoodTag)
+                        }
+                        className={`rounded-lg border px-2 py-1 text-[11px] font-medium ${
+                          isNight
+                            ? 'border-[#5a4230] bg-[#261c15] text-[#f6ead7]'
+                            : 'border-[#dfc8a8] bg-white text-[#382619]'
+                        }`}
+                      >
+                        {MOOD_TAGS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            Cảm xúc: {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={item.id}
@@ -413,11 +626,13 @@ export function FinancePanel({
                       : 'border-[#eadbc4] bg-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex min-w-0 items-center gap-2.5">
                     <span className="text-lg">{cat?.emoji ?? '🧾'}</span>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs font-bold">{item.note}</span>
+                        <span className="truncate text-xs font-bold">
+                          {item.note}
+                        </span>
                         <AuthorBadge sharing={sharing} role={item.authorRole} />
                       </div>
                       <div className="text-[10px] opacity-70">
@@ -425,7 +640,7 @@ export function FinancePanel({
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-1.5">
                     <span
                       className={`text-xs font-extrabold ${
                         item.type === 'expense'
@@ -438,11 +653,21 @@ export function FinancePanel({
                       {item.type === 'expense' ? '-' : '+'}
                       {formatVnd(item.amount)}
                     </span>
+                    {onUpdateFinance && (
+                      <button
+                        type="button"
+                        onClick={() => beginEditEntry(item)}
+                        aria-label="Sửa khoản tài chính"
+                        className="rounded p-1 opacity-55 hover:bg-black/5 hover:opacity-100"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => onDeleteFinance(item.id)}
                       aria-label="Xóa khoản tài chính"
-                      className="rounded p-1 opacity-45 hover:opacity-100"
+                      className="rounded p-1 opacity-45 hover:bg-black/5 hover:opacity-100"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

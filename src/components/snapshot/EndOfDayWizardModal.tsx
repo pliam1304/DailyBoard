@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { createUuid } from '@/lib/sharing';
+import { formatVndInput, parseVndInput } from '@/lib/date';
 import { MOOD_META, WEATHER_META } from '@/components/decor/ScrapbookDecor';
 import type {
   BoardSharingState,
@@ -60,7 +61,7 @@ export function EndOfDayWizardModal({
     if (quote.trim() !== (dayEntry.dailyQuote || '').trim()) {
       onUpdateDay({ dailyQuote: quote.trim() });
     }
-    const num = Number(expenseAmount.replace(/[^\d]/g, ''));
+    const num = parseVndInput(expenseAmount);
     if (num > 0) {
       onAddQuickExpense({
         id: createUuid(),
@@ -220,9 +221,11 @@ export function EndOfDayWizardModal({
                   type="text"
                   inputMode="numeric"
                   value={expenseAmount}
-                  onChange={(e) => setExpenseAmount(e.target.value)}
-                  placeholder="Số tiền (VNĐ)"
-                  className="rounded-xl border border-[#d5bc99] bg-white px-2.5 py-1.5 text-xs"
+                  onChange={(e) =>
+                    setExpenseAmount(formatVndInput(e.target.value))
+                  }
+                  placeholder="Số tiền (vd: 45.000)"
+                  className="rounded-xl border border-[#d5bc99] bg-white px-2.5 py-1.5 text-xs font-bold"
                 />
                 <input
                   type="text"
