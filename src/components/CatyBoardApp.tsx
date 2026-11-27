@@ -39,7 +39,8 @@ import {
   shiftDateKey,
   toLocalDateKey,
 } from '@/lib/date';
-import { calculateStreak } from '@/lib/prompts';
+import { calculateStreakDetails } from '@/lib/prompts';
+import { isPureCapsuleNote } from '@/lib/capsules';
 import { registerServiceWorker, sendLocalNotification } from '@/lib/pwa';
 import {
   computeFishPoints,
@@ -167,6 +168,13 @@ const CozyDeskModal = dynamic(
     import('@/components/desk/CozyDeskModal').then((m) => m.CozyDeskModal),
   { ssr: false }
 );
+const LetGoBonfireModal = dynamic(
+  () =>
+    import('@/components/capsule/LetGoBonfireModal').then(
+      (m) => m.LetGoBonfireModal
+    ),
+  { ssr: false }
+);
 import {
   PressedFlower,
   PuffyHeartSticker,
@@ -231,7 +239,9 @@ export function CatyBoardApp() {
   const [shareOpen, setShareOpen] = useState(false);
   const [capsuleJarOpen, setCapsuleJarOpen] = useState(false);
   const [capsuleJarMode, setCapsuleJarMode] = useState<'jar' | 'compose'>('jar');
+  const [bonfireOpen, setBonfireOpen] = useState(false);
   const [cozyDeskOpen, setCozyDeskOpen] = useState(false);
+  const [warmAmberOn, setWarmAmberOn] = useState(false);
   const [privacyShieldOn, setPrivacyShieldOn] = useState(false);
   const [shieldPinInput, setShieldPinInput] = useState('');
   const [shieldPinError, setShieldPinError] = useState('');
@@ -1076,7 +1086,9 @@ export function CatyBoardApp() {
 
   const dayEntry = ensureDayEntry(store, selectedDate);
   const dayPhotos = store.photos.filter((p) => p.entryDate === selectedDate);
-  const dayNotes = store.notes.filter((n) => n.entryDate === selectedDate);
+  const dayNotes = store.notes.filter(
+    (n) => n.entryDate === selectedDate && !isPureCapsuleNote(n)
+  );
   const dayReminders = getRemindersForDateWithRecurrence(
     store.reminders,
     selectedDate
@@ -1088,7 +1100,8 @@ export function CatyBoardApp() {
 
   const completedRemindersCount = dayReminders.filter((r) => r.completed).length;
   const pendingDayReminders = dayReminders.filter((r) => !r.completed);
-  const streakCount = calculateStreak(store, todayKey);
+  const streakDetails = calculateStreakDetails(store, todayKey);
+  const streakCount = streakDetails.streak;
   const fishPoints = computeFishPoints(store, todayKey);
   const throwbackPhoto = pickThrowbackPhoto(store, selectedDate);
   const dayExpense = dayFinance
@@ -1592,10 +1605,19 @@ export function CatyBoardApp() {
               </button>
 
               <span
-                title="Chuỗi ngày check-in liên tiếp"
+                title={
+                  streakDetails.shieldsAvailable > 0
+                    ? `Chuỗi ${streakCount} ngày • Có ${streakDetails.shieldsAvailable} Thẻ Ngủ Đông 🐾 tự bảo vệ chuỗi khi bạn nghỉ 1 ngày`
+                    : 'Chuỗi ngày check-in liên tiếp (mỗi 7 ngày tích lũy được 1 Thẻ Ngủ Đông 🐾 bảo vệ chuỗi)'
+                }
                 className="inline-flex items-center gap-1 rounded-full bg-[#b57a29] px-2.5 py-1 text-[11px] font-extrabold text-white shadow-xs"
               >
                 <Flame className="h-3 w-3" /> {streakCount} ngày
+                {streakDetails.shieldsAvailable > 0 && (
+                  <span className="ml-0.5 rounded-full bg-white/20 px-1.5 text-[10px]">
+                    🐾{streakDetails.shieldsAvailable}
+                  </span>
+                )}
               </span>
 
               {cloudUser && (
@@ -1704,6 +1726,21 @@ export function CatyBoardApp() {
                   <Moon className="h-4 w-4 text-[#3a75a8]" />
                 )}
               </button>
+
+              {isNight && (
+                <button
+                  type="button"
+                  onClick={() => setWarmAmberOn((v) => !v)}
+                  title="Ánh nến hổ phách dịu mắt ban đêm"
+                  className={`inline-flex items-center rounded-2xl border px-2.5 py-2 text-xs font-extrabold shadow-xs transition ${
+                    warmAmberOn
+                      ? 'border-[#d4943b] bg-[#5c3c18] text-[#ffe1a6]'
+                      : 'border-[#614835] bg-[#2c2119] text-[#d6c2aa]'
+                  }`}
+                >
+                  🕯️
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1932,6 +1969,7 @@ export function CatyBoardApp() {
                       setCapsuleJarMode(mode);
                       setCapsuleJarOpen(true);
                     }}
+                    onOpenBonfire={() => setBonfireOpen(true)}
                   />
 
                   {/* Compact Summary Strip */}
@@ -2411,6 +2449,24 @@ export function CatyBoardApp() {
           onAddNote={handleAddNote}
           onUpdateNote={handleUpdateNote}
           onDeleteNote={handleDeleteNote}
+        />
+      )}
+
+      {/* Zero-Trace Let-Go Bonfire & 4-7-8 Breathing Modal */}
+      {bonfireOpen && (
+        <LetGoBonfireModal
+          isOpen={bonfireOpen}
+          catName={store.profile.catName}
+          theme={theme}
+          onClose={() => setBonfireOpen(false)}
+        />
+      )}
+
+      {/* Warm Amber Candlelight Eye-Comfort Filter for Night Journaling */}
+      {isNight && warmAmberOn && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-30 bg-[#ff9e2c]/12 mix-blend-multiply"
         />
       )}
 

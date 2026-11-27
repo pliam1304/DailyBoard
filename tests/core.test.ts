@@ -23,6 +23,7 @@ import {
 } from '../src/lib/sharing.ts';
 import {
   calculateStreak,
+  calculateStreakDetails,
   computeMonthlyWrapped,
   formatFilmDateStamp,
   getDailyCatFortune,
@@ -56,6 +57,7 @@ import {
   encodeCapsuleStyle,
   extractCapsulesFromNotes,
   isCapsuleNote,
+  isPureCapsuleNote,
   parseCapsuleStyle,
 } from '../src/lib/capsules.ts';
 
@@ -454,17 +456,18 @@ test('security helpers hash PINs, block service_role keys, restrict uploads, rat
   assert.equal(await decryptPrivateContent(encryptedA, '2468'), secretMessage);
 });
 
-test('capsule metadata encoding, parsing, and search seal protections work cleanly', () => {
+test('capsule metadata encoding, parsing, finishes, and streak shields work cleanly', () => {
   const style = encodeCapsuleStyle(
     'clear-firefly',
     'sad',
     3,
     'origami-star',
-    'sakura-pink'
+    'sakura-pink',
+    'candy-stripe'
   );
   assert.equal(
     style,
-    'capsule:clear-firefly:sad:3:origami-star:sakura-pink'
+    'capsule:clear-firefly:sad:3:origami-star:sakura-pink:candy-stripe'
   );
 
   const parsed = parseCapsuleStyle(style);
@@ -475,13 +478,15 @@ test('capsule metadata encoding, parsing, and search seal protections work clean
   assert.equal(parsed.palette.translucent, true);
   assert.equal(parsed.charmId, 'origami-star');
   assert.equal(parsed.scrollSkinId, 'sakura-pink');
+  assert.equal(parsed.finishId, 'candy-stripe');
 
-  // Backward compatibility for 4-segment capsule strings
+  // Backward compatibility for 4-segment and 6-segment capsule strings
   const legacyParsed = parseCapsuleStyle('capsule:starlight-gold:miss:2');
   assert.equal(legacyParsed.isCapsule, true);
   assert.equal(legacyParsed.colorId, 'starlight-gold');
   assert.equal(legacyParsed.charmId, 'clover');
   assert.equal(legacyParsed.scrollSkinId, 'parchment');
+  assert.equal(legacyParsed.finishId, 'star-dust');
 
   const plainParsed = parseCapsuleStyle('cream-torn');
   assert.equal(plainParsed.isCapsule, false);
@@ -520,11 +525,42 @@ test('capsule metadata encoding, parsing, and search seal protections work clean
   const capsules = extractCapsulesFromNotes(store.notes);
   assert.equal(capsules.length, 1);
   assert.equal(isCapsuleNote(store.notes[0]), true);
+  assert.equal(isPureCapsuleNote(store.notes[0]), true);
   assert.equal(isCapsuleNote(store.notes[1]), false);
+  assert.equal(isPureCapsuleNote(store.notes[1]), false);
 
   // Time-locked capsule content must NOT leak through global search before unlockDate
   assert.equal(searchAcrossBoard(store, 'năm 2099').length, 0);
   const titleHits = searchAcrossBoard(store, 'tương lai');
   assert.equal(titleHits.length, 1);
   assert.match(titleHits[0].snippet, /Niêm phong/);
+
+  // Cat Nap Shield (Thẻ Ngủ Đông): 7 total active days earns 1 shield that bridges a 1-day rest gap
+  const sevenActiveDays: Record<string, { entryDate: string; mood: 'happy'; weather: 'sunny'; checkedIn: boolean; updatedAt: string }> = {};
+  // Active on Nov 18, 19, 20, 21, 22, 23, SKIP Nov 24 (rest day!), active on Nov 25 & Nov 26 (8 active days total -> 1 shield earned!)
+  for (const dk of [
+    '2026-11-18',
+    '2026-11-19',
+    '2026-11-20',
+    '2026-11-21',
+    '2026-11-22',
+    '2026-11-23',
+    '2026-11-25',
+    '2026-11-26',
+  ]) {
+    sevenActiveDays[dk] = {
+      entryDate: dk,
+      mood: 'happy',
+      weather: 'sunny',
+      checkedIn: true,
+      updatedAt: '',
+    };
+  }
+  const shieldStore = normalizeStoreData({
+    version: 3,
+    dayEntries: sevenActiveDays,
+  });
+  const details = calculateStreakDetails(shieldStore, '2026-11-26');
+  assert.equal(details.usedShield, true);
+  assert.equal(details.streak, 8);
 });

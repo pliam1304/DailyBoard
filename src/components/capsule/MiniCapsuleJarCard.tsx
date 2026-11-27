@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Sparkles } from 'lucide-react';
+import { Flame, Plus, Sparkles } from 'lucide-react';
 import {
   extractCapsulesFromNotes,
   parseCapsuleStyle,
@@ -15,6 +15,7 @@ interface MiniCapsuleJarCardProps {
   notes: NoteItem[];
   theme: ThemeMode;
   onOpenJar: (mode: 'jar' | 'compose') => void;
+  onOpenBonfire?: () => void;
 }
 
 const MINI_SLOTS: { x: number; y: number; rot: number }[] = [
@@ -32,6 +33,7 @@ export function MiniCapsuleJarCard({
   notes,
   theme,
   onOpenJar,
+  onOpenBonfire,
 }: MiniCapsuleJarCardProps) {
   const isNight = theme === 'cozy-night';
   const todayKey = toLocalDateKey();
@@ -205,7 +207,21 @@ export function MiniCapsuleJarCard({
         </div>
       </button>
 
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex flex-wrap shrink-0 items-center gap-1.5">
+        {onOpenBonfire && (
+          <button
+            type="button"
+            onClick={onOpenBonfire}
+            title="Lò sưởi buông bỏ muộn phiền"
+            className={`inline-flex items-center gap-1 rounded-2xl border px-2.5 py-2 text-xs font-extrabold transition ${
+              isNight
+                ? 'border-[#7a4b38] bg-[#38231b] text-[#f7c8b5] hover:bg-[#472d23]'
+                : 'border-[#e0bca8] bg-[#fff2ea] text-[#9e3f28] hover:bg-[#fae4d7]'
+            }`}
+          >
+            <Flame className="h-3.5 w-3.5" /> Buông bỏ
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onOpenJar('compose')}

@@ -292,6 +292,62 @@ class LofiAmbientEngine {
       // Ignore audio errors
     }
   }
+
+  public playFireCrackleBurst() {
+    if (typeof window === 'undefined') return;
+    this.triggerHaptic([10, 30, 10, 40, 12]);
+    try {
+      this.ensureInit();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      const len = Math.floor(ctx.sampleRate * 2.1);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      let prev = 0;
+      for (let i = 0; i < len; i += 1) {
+        const progress = i / len;
+        const env = Math.sin(progress * Math.PI);
+        const white = Math.random() * 2 - 1;
+        prev = (prev + 0.04 * white) / 1.04;
+        const spark = Math.random() > 0.996 ? (Math.random() * 2 - 1) * 0.45 : 0;
+        data[i] = (prev * 0.8 + spark) * env * 0.28;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 1200;
+      src.connect(filter);
+      filter.connect(ctx.destination);
+      src.start(now);
+    } catch {
+      // Ignore audio errors
+    }
+  }
+
+  public playWaxSealStamp() {
+    if (typeof window === 'undefined') return;
+    this.triggerHaptic([18, 20]);
+    try {
+      this.ensureInit();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(165, now);
+      osc.frequency.exponentialRampToValueAtTime(72, now + 0.09);
+      gain.gain.setValueAtTime(0.11, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.14);
+    } catch {
+      // Ignore audio errors
+    }
+  }
 }
 
 export const ambientEngine = new LofiAmbientEngine();

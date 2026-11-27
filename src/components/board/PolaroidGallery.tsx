@@ -6,13 +6,17 @@ import {
   Camera,
   ImagePlus,
   MessageSquarePlus,
+  Mic,
   Palette,
+  RotateCw,
   Send,
   Share2,
+  Square,
   Star,
   Trash2,
   X,
 } from 'lucide-react';
+import { ambientEngine } from '@/lib/audio';
 import { compressImageToDataUrl } from '@/lib/media';
 import { createUuid, getMemberHeart, getMemberNickname } from '@/lib/sharing';
 import { sanitizeText, validateImageFile } from '@/lib/security';
@@ -77,6 +81,10 @@ export function PolaroidGallery({
   const [openCommentPhotoId, setOpenCommentPhotoId] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   const [uploadError, setUploadError] = useState('');
+  const [flippedIds, setFlippedIds] = useState<Record<string, boolean>>({});
+  const [recordingPhotoId, setRecordingPhotoId] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isNight = theme === 'cozy-night';
 
@@ -103,6 +111,93 @@ export function PolaroidGallery({
     ];
     onUpdatePhoto(photo.id, { comments: nextComments });
     setCommentDraft('');
+  };
+
+  const getBacksideMeta = (photo: DayPhoto) => {
+    const raw = photo.comments ?? [];
+    const backNote =
+      raw.find((c) => c.id === '__polaroid_back_note__')?.text ?? '';
+    const backVoice =
+      raw.find((c) => c.id === '__polaroid_back_voice__')?.text ?? '';
+    const visibleComments = raw.filter(
+      (c) => !c.id.startsWith('__polaroid_back_')
+    );
+    return { backNote, backVoice, visibleComments };
+  };
+
+  const upsertBacksideField = (
+    photo: DayPhoto,
+    specialId: '__polaroid_back_note__' | '__polaroid_back_voice__',
+    value: string
+  ) => {
+    const others = (photo.comments ?? []).filter((c) => c.id !== specialId);
+    const next = value
+      ? [
+          ...others,
+          {
+            id: specialId,
+            text:
+              specialId === '__polaroid_back_note__'
+                ? sanitizeText(value, 380)
+                : value,
+            authorRole: sharing.activeRole,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      : others;
+    onUpdatePhoto(photo.id, { comments: next });
+  };
+
+  const startBackVoiceRecord = async (photo: DayPhoto) => {
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === 'undefined'
+    ) {
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+          ? 'audio/mp4'
+          : '';
+      const rec = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      rec.ondataavailable = (ev) => {
+        if (ev.data.size > 0) chunks.push(ev.data);
+      };
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecordingPhotoId(null);
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            upsertBacksideField(photo, '__polaroid_back_voice__', reader.result);
+          }
+        };
+        reader.readAsDataURL(blob);
+      };
+      recorderRef.current = rec;
+      setRecordingPhotoId(photo.id);
+      rec.start();
+      recTimerRef.current = setTimeout(() => {
+        if (rec.state === 'recording') rec.stop();
+      }, 10000);
+    } catch {
+      setRecordingPhotoId(null);
+    }
+  };
+
+  const stopBackVoiceRecord = () => {
+    if (recTimerRef.current) clearTimeout(recTimerRef.current);
+    if (recorderRef.current && recorderRef.current.state === 'recording') {
+      recorderRef.current.stop();
+    }
   };
 
   const pushPhotoData = (
@@ -322,208 +417,328 @@ export function PolaroidGallery({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 pt-2 sm:grid-cols-2">
-          {photos.map((photo, idx) => (
-            <div
-              key={photo.id}
-              className="group relative flex justify-center"
-              style={{
-                transform: `rotate(${photo.rotationDeg}deg)`,
-              }}
-            >
-              <WashiTape
-                style={photo.washiStyle}
-                className="-top-2.5 absolute left-1/2 z-10 -translate-x-1/2 -rotate-2"
-              />
+          {photos.map((photo, idx) => {
+            const { backNote, backVoice, visibleComments } =
+              getBacksideMeta(photo);
+            const isFlipped = Boolean(flippedIds[photo.id]);
+            const hasBackSecret = Boolean(backNote || backVoice);
 
-              <PuffyHeartSticker
-                color={
-                  photo.authorRole
-                    ? getMemberHeart(sharing, photo.authorRole)
-                    : idx % 2 === 0
-                      ? 'sky'
-                      : 'sage'
-                }
-                size={22}
-                className="-right-2 top-3 absolute z-10"
-              />
-
+            return (
               <div
-                className={`polaroid-card w-full max-w-[320px] rounded-sm p-3 pb-4 transition-transform duration-200 group-hover:scale-[1.02] ${getPolaroidFrameClass(
-                  photo.frameColor
-                )}`}
+                key={photo.id}
+                className="group relative flex justify-center"
+                style={{
+                  transform: `rotate(${photo.rotationDeg}deg)`,
+                }}
               >
-                <button
-                  type="button"
-                  onClick={() => setPreviewPhoto(photo)}
-                  className="relative block w-full overflow-hidden rounded-[2px] bg-[#efe6d6]"
-                >
-                  <img
-                    src={photo.dataUrl}
-                    alt={photo.caption}
-                    loading="lazy"
-                    decoding="async"
-                    className="aspect-[4/3] w-full object-cover"
-                  />
-                  <div className="absolute bottom-2 left-2">
-                    <AuthorBadge sharing={sharing} role={photo.authorRole} />
-                  </div>
-                  {photo.syncState === 'pending' && (
-                    <span className="absolute right-2 bottom-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-2xs">
-                      Đang lưu...
-                    </span>
-                  )}
-                </button>
-
-                <input
-                  type="text"
-                  value={photo.caption}
-                  onChange={(e) =>
-                    onUpdatePhoto(photo.id, { caption: e.target.value })
-                  }
-                  className={`mt-2.5 w-full bg-transparent text-center text-sm font-bold outline-none focus:underline ${
-                    photo.frameColor === 'film-black'
-                      ? 'text-[#f4ebd9]'
-                      : 'text-[#382619]'
-                  } ${
-                    fontStyle === 'handwriting' ? 'font-handwriting-soft text-base' : ''
-                  }`}
+                <WashiTape
+                  style={photo.washiStyle}
+                  className="-top-2.5 absolute left-1/2 z-10 -translate-x-1/2 -rotate-2"
                 />
 
-                {/* Emoji Reaction Bar + Sticky Comment Trigger */}
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-1 border-t border-[#efe4d1] pt-2">
-                  <div className="flex items-center gap-1">
-                    {QUICK_REACTIONS.map((emoji) => {
-                      const active = (photo.reactions ?? []).includes(emoji);
-                      return (
+                <PuffyHeartSticker
+                  color={
+                    photo.authorRole
+                      ? getMemberHeart(sharing, photo.authorRole)
+                      : idx % 2 === 0
+                        ? 'sky'
+                        : 'sage'
+                  }
+                  size={22}
+                  className="-right-2 top-3 absolute z-10"
+                />
+
+                {isFlipped ? (
+                  /* --- VINTAGE 3D FLIPPED POLAROID BACKSIDE --- */
+                  <div className="polaroid-card paper-cream-torn flex w-full max-w-[320px] flex-col justify-between rounded-sm border border-[#e0cdb0] p-3.5 text-[#382619] shadow-lg">
+                    <div>
+                      <div className="flex items-center justify-between border-b border-dashed border-[#cbb28d] pb-2 text-[10px] font-mono font-bold uppercase tracking-wider text-[#7c6045]">
+                        <span>INSTAX FILM • {photo.entryDate}</span>
                         <button
-                          key={emoji}
                           type="button"
-                          onClick={() => toggleReaction(photo, emoji)}
-                          className={`rounded-full px-1.5 py-0.5 text-xs transition ${
-                            active
-                              ? 'scale-110 bg-[#f6e3bf] ring-1 ring-[#c5892f]'
-                              : 'opacity-55 hover:bg-[#f3ead9] hover:opacity-100'
+                          onClick={() => {
+                            ambientEngine.playPaperUnfurl();
+                            setFlippedIds((prev) => ({
+                              ...prev,
+                              [photo.id]: false,
+                            }));
+                          }}
+                          className="inline-flex items-center gap-1 rounded-full bg-[#3a75a8] px-2.5 py-0.5 font-sans text-[10px] font-extrabold text-white"
+                        >
+                          <RotateCw className="h-3 w-3" /> Mặt trước
+                        </button>
+                      </div>
+
+                      <textarea
+                        rows={4}
+                        defaultValue={backNote}
+                        onBlur={(e) =>
+                          upsertBacksideField(
+                            photo,
+                            '__polaroid_back_note__',
+                            e.target.value
+                          )
+                        }
+                        placeholder="Viết dòng chữ tay bí mật sau tấm ảnh này (tự lưu khi chạm ra ngoài)..."
+                        className="font-handwriting-soft mt-2.5 w-full resize-none rounded-xl border border-[#e4d3b8] bg-[#fffcf6] p-2.5 text-sm leading-relaxed text-[#382619] outline-none placeholder:text-[#9c8369]"
+                      />
+                    </div>
+
+                    {/* 10-Second Talking Polaroid Audio Strip */}
+                    <div className="mt-3 rounded-xl border border-[#e3d1b4] bg-[#f7efe0] p-2.5 text-xs">
+                      <div className="mb-1.5 flex items-center justify-between text-[11px] font-extrabold text-[#5c4430]">
+                        <span>🎙️ Giọng nói kỷ niệm sau ảnh (10s)</span>
+                        {backVoice && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              upsertBacksideField(
+                                photo,
+                                '__polaroid_back_voice__',
+                                ''
+                              )
+                            }
+                            className="text-[10px] font-bold text-[#b5424d] hover:underline"
+                          >
+                            Xóa thu âm
+                          </button>
+                        )}
+                      </div>
+
+                      {backVoice ? (
+                        <audio
+                          controls
+                          src={backVoice}
+                          className="h-8 w-full"
+                        />
+                      ) : recordingPhotoId === photo.id ? (
+                        <button
+                          type="button"
+                          onClick={stopBackVoiceRecord}
+                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#c54650] py-1.5 text-xs font-extrabold text-white animate-pulse"
+                        >
+                          <Square className="h-3 w-3 fill-current" /> Đang thu... bấm để dừng
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void startBackVoiceRecord(photo)}
+                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#3d7c57] py-1.5 text-xs font-extrabold text-white hover:bg-[#316647]"
+                        >
+                          <Mic className="h-3.5 w-3.5" /> Bấm thu 10 giây giọng nói
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* --- POLAROID FRONT SIDE --- */
+                  <div
+                    className={`polaroid-card w-full max-w-[320px] rounded-sm p-3 pb-4 transition-transform duration-200 group-hover:scale-[1.02] ${getPolaroidFrameClass(
+                      photo.frameColor
+                    )}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPhoto(photo)}
+                      className="relative block w-full overflow-hidden rounded-[2px] bg-[#efe6d6]"
+                    >
+                      <img
+                        src={photo.dataUrl}
+                        alt={photo.caption}
+                        loading="lazy"
+                        decoding="async"
+                        className="aspect-[4/3] w-full object-cover"
+                      />
+                      <div className="absolute bottom-2 left-2">
+                        <AuthorBadge sharing={sharing} role={photo.authorRole} />
+                      </div>
+                      {photo.syncState === 'pending' && (
+                        <span className="absolute right-2 bottom-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-2xs">
+                          Đang lưu...
+                        </span>
+                      )}
+                    </button>
+
+                    <input
+                      type="text"
+                      value={photo.caption}
+                      onChange={(e) =>
+                        onUpdatePhoto(photo.id, { caption: e.target.value })
+                      }
+                      className={`mt-2.5 w-full bg-transparent text-center text-sm font-bold outline-none focus:underline ${
+                        photo.frameColor === 'film-black'
+                          ? 'text-[#f4ebd9]'
+                          : 'text-[#382619]'
+                      } ${
+                        fontStyle === 'handwriting'
+                          ? 'font-handwriting-soft text-base'
+                          : ''
+                      }`}
+                    />
+
+                    {/* Emoji Reaction Bar + Flip Backside + Sticky Comment Trigger */}
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-1 border-t border-[#efe4d1] pt-2">
+                      <div className="flex items-center gap-0.5">
+                        {QUICK_REACTIONS.map((emoji) => {
+                          const active = (photo.reactions ?? []).includes(emoji);
+                          return (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => toggleReaction(photo, emoji)}
+                              className={`rounded-full px-1.5 py-0.5 text-xs transition ${
+                                active
+                                  ? 'scale-110 bg-[#f6e3bf] ring-1 ring-[#c5892f]'
+                                  : 'opacity-55 hover:bg-[#f3ead9] hover:opacity-100'
+                              }`}
+                            >
+                              {emoji}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            ambientEngine.playPaperUnfurl();
+                            setFlippedIds((prev) => ({
+                              ...prev,
+                              [photo.id]: true,
+                            }));
+                          }}
+                          title="Lật mặt sau ảnh Polaroid"
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-extrabold transition ${
+                            hasBackSecret
+                              ? 'bg-[#3a75a8] text-white'
+                              : 'bg-[#efe5d3] text-[#3f2c1e] hover:bg-[#e5d6be]'
                           }`}
                         >
-                          {emoji}
+                          <RotateCw className="h-3 w-3" />
+                          {backVoice ? '🎙️ Mặt sau' : 'Mặt sau'}
                         </button>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOpenCommentPhotoId((curr) =>
-                        curr === photo.id ? null : photo.id
-                      )
-                    }
-                    className="inline-flex items-center gap-1 rounded-full bg-[#efe5d3] px-2 py-0.5 text-[10px] font-bold text-[#3f2c1e] hover:bg-[#e5d6be]"
-                  >
-                    <MessageSquarePlus className="h-3 w-3" />
-                    {(photo.comments?.length ?? 0) > 0
-                      ? `${photo.comments!.length} lời nhắn`
-                      : 'Ghi chú ảnh'}
-                  </button>
-                </div>
 
-                {/* Inline Sticky Comments */}
-                {((photo.comments?.length ?? 0) > 0 ||
-                  openCommentPhotoId === photo.id) && (
-                  <div className="mt-2 space-y-1.5 rounded-xl bg-[#f5ecdc] p-2 text-[11px] text-[#382619]">
-                    {(photo.comments ?? []).map((c) => (
-                      <div key={c.id} className="leading-snug">
-                        <span className="font-extrabold text-[#3a75a8]">
-                          {getMemberNickname(sharing, c.authorRole || 'owner')}:{' '}
-                        </span>
-                        <span>{c.text}</span>
-                      </div>
-                    ))}
-                    {openCommentPhotoId === photo.id && (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          addComment(photo);
-                        }}
-                        className="flex gap-1 pt-1"
-                      >
-                        <input
-                          type="text"
-                          value={commentDraft}
-                          onChange={(e) => setCommentDraft(e.target.value)}
-                          placeholder="Dán 1 lời nhắn nhỏ dưới ảnh..."
-                          className="flex-1 rounded-lg border border-[#d6c09d] bg-white px-2 py-1 text-[11px] text-[#382619] outline-none"
-                        />
                         <button
-                          type="submit"
-                          aria-label="Gửi lời nhắn"
-                          className="rounded-lg bg-[#3a75a8] px-2 py-1 text-white hover:bg-[#2f6390]"
+                          type="button"
+                          onClick={() =>
+                            setOpenCommentPhotoId((curr) =>
+                              curr === photo.id ? null : photo.id
+                            )
+                          }
+                          className="inline-flex items-center gap-1 rounded-full bg-[#efe5d3] px-2 py-0.5 text-[10px] font-bold text-[#3f2c1e] hover:bg-[#e5d6be]"
                         >
-                          <Send className="h-3 w-3" />
+                          <MessageSquarePlus className="h-3 w-3" />
+                          {visibleComments.length > 0
+                            ? `${visibleComments.length}`
+                            : 'Nhắn'}
                         </button>
-                      </form>
+                      </div>
+                    </div>
+
+                    {/* Inline Sticky Comments */}
+                    {(visibleComments.length > 0 ||
+                      openCommentPhotoId === photo.id) && (
+                      <div className="mt-2 space-y-1.5 rounded-xl bg-[#f5ecdc] p-2 text-[11px] text-[#382619]">
+                        {visibleComments.map((c) => (
+                          <div key={c.id} className="leading-snug">
+                            <span className="font-extrabold text-[#3a75a8]">
+                              {getMemberNickname(sharing, c.authorRole || 'owner')}:{' '}
+                            </span>
+                            <span>{c.text}</span>
+                          </div>
+                        ))}
+                        {openCommentPhotoId === photo.id && (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              addComment(photo);
+                            }}
+                            className="flex gap-1 pt-1"
+                          >
+                            <input
+                              type="text"
+                              value={commentDraft}
+                              onChange={(e) => setCommentDraft(e.target.value)}
+                              placeholder="Dán 1 lời nhắn nhỏ dưới ảnh..."
+                              className="flex-1 rounded-lg border border-[#d6c09d] bg-white px-2 py-1 text-[11px] text-[#382619] outline-none"
+                            />
+                            <button
+                              type="submit"
+                              aria-label="Gửi lời nhắn"
+                              className="rounded-lg bg-[#3a75a8] px-2 py-1 text-white hover:bg-[#2f6390]"
+                            >
+                              <Send className="h-3 w-3" />
+                            </button>
+                          </form>
+                        )}
+                      </div>
                     )}
+
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-[#5e4634]">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const order = WASHI_OPTIONS.map((w) => w.id);
+                            const next =
+                              order[
+                                (order.indexOf(photo.washiStyle) + 1) %
+                                  order.length
+                              ];
+                            onUpdatePhoto(photo.id, { washiStyle: next });
+                          }}
+                          className="rounded-full bg-[#efe5d3] px-2 py-0.5 font-semibold text-[#3f2c1e] hover:bg-[#e5d6be]"
+                        >
+                          Băng keo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const order = POLAROID_FRAME_OPTIONS.map((f) => f.id);
+                            const curr = photo.frameColor || 'classic-white';
+                            const next =
+                              order[(order.indexOf(curr) + 1) % order.length];
+                            onUpdatePhoto(photo.id, { frameColor: next });
+                          }}
+                          title="Đổi màu khung Polaroid"
+                          className="inline-flex items-center gap-1 rounded-full bg-[#efe5d3] px-2 py-0.5 font-semibold text-[#3f2c1e] hover:bg-[#e5d6be]"
+                        >
+                          <Palette className="h-3 w-3" /> Khung
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdatePhoto(photo.id, { isCover: !photo.isCover })
+                          }
+                          title="Đặt làm ảnh bìa trên Lịch"
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-bold ${
+                            photo.isCover
+                              ? 'bg-[#c5892f] text-white'
+                              : 'bg-[#efe5d3] text-[#3f2c1e] hover:bg-[#e5d6be]'
+                          }`}
+                        >
+                          <Star className="h-3 w-3" />
+                          {photo.isCover ? 'Bìa lịch' : 'Đặt bìa'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeletePhoto(photo.id)}
+                          aria-label="Xóa ảnh"
+                          className="rounded-full p-1 text-[#b5424d] hover:bg-[#fde4e7]"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
-
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-[#5e4634]">
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const order = WASHI_OPTIONS.map((w) => w.id);
-                        const next =
-                          order[(order.indexOf(photo.washiStyle) + 1) % order.length];
-                        onUpdatePhoto(photo.id, { washiStyle: next });
-                      }}
-                      className="rounded-full bg-[#efe5d3] px-2 py-0.5 font-semibold text-[#3f2c1e] hover:bg-[#e5d6be]"
-                    >
-                      Băng keo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const order = POLAROID_FRAME_OPTIONS.map((f) => f.id);
-                        const curr = photo.frameColor || 'classic-white';
-                        const next =
-                          order[(order.indexOf(curr) + 1) % order.length];
-                        onUpdatePhoto(photo.id, { frameColor: next });
-                      }}
-                      title="Đổi màu khung Polaroid"
-                      className="inline-flex items-center gap-1 rounded-full bg-[#efe5d3] px-2 py-0.5 font-semibold text-[#3f2c1e] hover:bg-[#e5d6be]"
-                    >
-                      <Palette className="h-3 w-3" /> Khung
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdatePhoto(photo.id, { isCover: !photo.isCover })
-                      }
-                      title="Đặt làm ảnh bìa trên Lịch"
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-bold ${
-                        photo.isCover
-                          ? 'bg-[#c5892f] text-white'
-                          : 'bg-[#efe5d3] text-[#3f2c1e] hover:bg-[#e5d6be]'
-                      }`}
-                    >
-                      <Star className="h-3 w-3" />
-                      {photo.isCover ? 'Bìa lịch' : 'Đặt bìa'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeletePhoto(photo.id)}
-                      aria-label="Xóa ảnh"
-                      className="rounded-full p-1 text-[#b5424d] hover:bg-[#fde4e7]"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -71,6 +71,7 @@ export function DailySnapshotModal({
   const cardRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<SnapshotLayout>('scrapbook');
   const [includePrivate, setIncludePrivate] = useState(false);
+  const [hideAmounts, setHideAmounts] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   if (!isOpen) return null;
@@ -118,6 +119,9 @@ export function DailySnapshotModal({
   );
   const featuredLetter =
     publicNotes.find((n) => n.kind === 'letter') ?? publicNotes[0];
+
+  const displayMoney = (val: number) =>
+    hideAmounts ? '•••.•••đ' : formatVnd(val);
 
   const handleDownloadPng = async () => {
     if (!cardRef.current) return;
@@ -227,6 +231,18 @@ export function DailySnapshotModal({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setHideAmounts((v) => !v)}
+              className={`inline-flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                hideAmounts
+                  ? 'bg-[#3d7c57] text-white'
+                  : 'bg-[#f4ebda] text-[#5e4632] hover:bg-[#eadbc2]'
+              }`}
+            >
+              {hideAmounts ? '🙈 Đang che số tiền' : '💰 Hiện số tiền'}
+            </button>
+
             <button
               type="button"
               onClick={() => setIncludePrivate((v) => !v)}
@@ -466,19 +482,19 @@ export function DailySnapshotModal({
                       <div className="rounded-lg bg-white/70 p-1.5">
                         <div className="opacity-70">Chi</div>
                         <div className="font-extrabold text-[#be4953]">
-                          {formatVnd(totalExpense)}
+                          {displayMoney(totalExpense)}
                         </div>
                       </div>
                       <div className="rounded-lg bg-white/70 p-1.5">
                         <div className="opacity-70">Tiết kiệm</div>
                         <div className="font-extrabold text-[#38864d]">
-                          {formatVnd(totalSaving)}
+                          {displayMoney(totalSaving)}
                         </div>
                       </div>
                       <div className="rounded-lg bg-white/70 p-1.5">
                         <div className="opacity-70">Thu</div>
                         <div className="font-extrabold text-[#2f71ad]">
-                          {formatVnd(totalIncome)}
+                          {displayMoney(totalIncome)}
                         </div>
                       </div>
                     </div>
@@ -558,15 +574,15 @@ export function DailySnapshotModal({
                   <div className="mb-1 font-bold">[TÀI CHÍNH TRONG NGÀY]</div>
                   <div className="flex justify-between">
                     <span>Chi tiêu:</span>
-                    <span>-{formatVnd(totalExpense)}</span>
+                    <span>-{displayMoney(totalExpense)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Tiết kiệm:</span>
-                    <span>+{formatVnd(totalSaving)}</span>
+                    <span>+{displayMoney(totalSaving)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Thu nhập:</span>
-                    <span>+{formatVnd(totalIncome)}</span>
+                    <span>+{displayMoney(totalIncome)}</span>
                   </div>
                 </div>
 

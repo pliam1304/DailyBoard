@@ -374,7 +374,10 @@ export function validateBackupPayload(
       caption: sanitizeText(p.caption || '', 160),
       comments: (p.comments ?? []).slice(0, 50).map((c) => ({
         ...c,
-        text: sanitizeText(c.text || '', 240),
+        text:
+          c.id === '__polaroid_back_voice__' && isAllowedAudioDataUrl(c.text || '')
+            ? c.text
+            : sanitizeText(c.text || '', 400),
       })),
     }));
 

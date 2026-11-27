@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { formatShortDate, toLocalDateKey } from '@/lib/date';
+import { ambientEngine } from '@/lib/audio';
 import { isCapsuleNote, parseCapsuleStyle } from '@/lib/capsules';
 import { createUuid, isSharedDuo } from '@/lib/sharing';
 import {
@@ -55,6 +56,55 @@ const PAPER_STYLES: { id: PaperStyle; label: string; cls: string }[] = [
   { id: 'kraft-ticket', label: 'Giấy kraft', cls: 'paper-kraft-ticket' },
 ];
 
+type WaxSealId = 'none' | 'crimson' | 'gold' | 'forest' | 'plum';
+
+const WAX_SEALS: {
+  id: Exclude<WaxSealId, 'none'>;
+  label: string;
+  emoji: string;
+  hex: string;
+  ringHex: string;
+}[] = [
+  {
+    id: 'crimson',
+    label: 'Sáp Đỏ Rượu',
+    emoji: '💌',
+    hex: '#a62c3b',
+    ringHex: '#731924',
+  },
+  {
+    id: 'gold',
+    label: 'Sáp Vàng Đồng',
+    emoji: '🐾',
+    hex: '#c28b2c',
+    ringHex: '#825914',
+  },
+  {
+    id: 'forest',
+    label: 'Sáp Rừng Thông',
+    emoji: '🌿',
+    hex: '#2e6b4c',
+    ringHex: '#1b4530',
+  },
+  {
+    id: 'plum',
+    label: 'Sáp Tím Đêm',
+    emoji: '🌙',
+    hex: '#694687',
+    ringHex: '#432959',
+  },
+];
+
+function parseWaxPaper(style: PaperStyle): {
+  seal: (typeof WAX_SEALS)[number] | null;
+  basePaper: PaperStyle;
+} {
+  if (!style.startsWith('wax:')) return { seal: null, basePaper: style };
+  const [, sealId, base] = style.split(':');
+  const found = WAX_SEALS.find((w) => w.id === sealId) ?? null;
+  return { seal: found, basePaper: (base as PaperStyle) || 'blue-lined' };
+}
+
 export function NotesAndLetters({
   entryDate,
   notes,
@@ -70,6 +120,10 @@ export function NotesAndLetters({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [paperStyle, setPaperStyle] = useState<PaperStyle>('cream-torn');
+  const [waxSeal, setWaxSeal] = useState<WaxSealId>('none');
+  const [unsealedWaxIds, setUnsealedWaxIds] = useState<Record<string, boolean>>(
+    {}
+  );
   const [isPrivate, setIsPrivate] = useState(false);
   const [composePin, setComposePin] = useState('');
   const [composeErr, setComposeErr] = useState('');
@@ -139,6 +193,14 @@ export function NotesAndLetters({
       setDecryptedMap((prev) => ({ ...prev, [newId]: cleanedContent }));
     }
 
+    const finalPaperStyle: PaperStyle =
+      kind === 'letter' && waxSeal !== 'none'
+        ? `wax:${waxSeal}:${paperStyle}`
+        : paperStyle;
+    if (kind === 'letter' && waxSeal !== 'none') {
+      ambientEngine.playWaxSealStamp();
+    }
+
     onAddNote({
       id: newId,
       entryDate,
@@ -151,7 +213,7 @@ export function NotesAndLetters({
             ? 'Thư gửi tương lai'
             : 'Ghi chú nhanh'),
       content: storedContent,
-      paperStyle,
+      paperStyle: finalPaperStyle,
       isPrivate,
       unlockDate: kind === 'time_capsule' && unlockDate ? unlockDate : undefined,
       pinned: kind === 'sticky',
@@ -163,6 +225,7 @@ export function NotesAndLetters({
     setContent('');
     setComposePin('');
     setIsPrivate(false);
+    setWaxSeal('none');
     setUnlockDate('');
   };
 
@@ -345,6 +408,39 @@ export function NotesAndLetters({
               />
             )}
 
+            {kind === 'letter' && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="opacity-80">🕯️ Đóng dấu sáp:</span>
+                <button
+                  type="button"
+                  onClick={() => setWaxSeal('none')}
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                    waxSeal === 'none'
+                      ? 'bg-[#423022] text-white'
+                      : 'bg-black/10 opacity-75'
+                  }`}
+                >
+                  Mở sẵn
+                </button>
+                {WAX_SEALS.map((ws) => (
+                  <button
+                    key={ws.id}
+                    type="button"
+                    title={ws.label}
+                    onClick={() => setWaxSeal(ws.id)}
+                    style={{ backgroundColor: ws.hex }}
+                    className={`flex h-6 w-6 items-center justify-center rounded-full text-xs text-white shadow-xs transition ${
+                      waxSeal === ws.id
+                        ? 'scale-110 ring-2 ring-[#ffd978]'
+                        : 'opacity-80 hover:opacity-100'
+                    }`}
+                  >
+                    {ws.emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {kind === 'time_capsule' && (
               <label className="inline-flex items-center gap-1.5">
                 <span className="opacity-80">Ngày mở thư:</span>
@@ -375,9 +471,12 @@ export function NotesAndLetters({
       {/* Notes Scrapbook Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {notes.map((note, idx) => {
+          const waxParsed = parseWaxPaper(note.paperStyle);
           const paperCls =
-            PAPER_STYLES.find((p) => p.id === note.paperStyle)?.cls ??
+            PAPER_STYLES.find((p) => p.id === waxParsed.basePaper)?.cls ??
             'paper-cream-torn';
+          const isWaxSealed =
+            Boolean(waxParsed.seal) && !unsealedWaxIds[note.id];
           const capsuleInfo = isCapsuleNote(note)
             ? parseCapsuleStyle(note.paperStyle)
             : null;
@@ -478,6 +577,41 @@ export function NotesAndLetters({
                   Phong thư đang được mèo giữ hộ đến ngày{' '}
                   <strong>{note.unlockDate}</strong> ♡
                 </div>
+              ) : isWaxSealed && waxParsed.seal ? (
+                /* 3D Embossed Wax-Sealed Envelope */
+                <button
+                  type="button"
+                  onClick={() => {
+                    ambientEngine.playCapsulePop();
+                    ambientEngine.playPaperUnfurl();
+                    setUnsealedWaxIds((prev) => ({ ...prev, [note.id]: true }));
+                  }}
+                  className="group relative flex w-full flex-col items-center justify-center overflow-hidden rounded-xl border border-[#d6c2a5] bg-gradient-to-b from-[#fbf4e4] to-[#f1e2c6] py-5 text-center shadow-inner transition hover:brightness-[1.02]"
+                >
+                  {/* Envelope flap lines */}
+                  <div
+                    className="pointer-events-none absolute inset-x-0 top-0 h-12 border-b border-[#dcc7a6]"
+                    style={{
+                      clipPath: 'polygon(0 0, 100% 0, 50% 100%)',
+                      background: 'rgba(218, 192, 152, 0.25)',
+                    }}
+                  />
+                  {/* 3D Wax Stamp Medallion */}
+                  <span
+                    style={{
+                      backgroundColor: waxParsed.seal.hex,
+                      borderColor: waxParsed.seal.ringHex,
+                      boxShadow:
+                        '0 4px 10px rgba(42,20,14,0.32), inset 0 2px 3px rgba(255,255,255,0.32)',
+                    }}
+                    className="relative z-10 flex h-12 w-12 items-center justify-center rounded-full border-4 text-lg transition-transform duration-200 group-hover:scale-110"
+                  >
+                    {waxParsed.seal.emoji}
+                  </span>
+                  <span className="mt-2 text-[11px] font-extrabold text-[#5c4430]">
+                    Chạm bẻ dấu sáp để mở tâm thư
+                  </span>
+                </button>
               ) : isPinLocked ? (
                 <div className="rounded-xl bg-white/70 p-3 text-xs">
                   <div className="flex items-center justify-between gap-2">

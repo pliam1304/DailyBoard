@@ -133,21 +133,79 @@ export function hasActivityOnDate(store: CatyStoreData, dateKey: string): boolea
   return false;
 }
 
-export function calculateStreak(store: CatyStoreData, todayKey: string): number {
+export function countTotalActiveDays(store: CatyStoreData): number {
+  const activeSet = new Set<string>();
+  for (const p of store.photos) activeSet.add(p.entryDate);
+  for (const n of store.notes) activeSet.add(n.entryDate);
+  for (const v of store.voiceMemos ?? []) activeSet.add(v.entryDate);
+  for (const r of store.reminders) {
+    if (r.completed) activeSet.add(r.entryDate);
+  }
+  for (const f of store.finance) activeSet.add(f.entryDate);
+  for (const [dk, entry] of Object.entries(store.dayEntries)) {
+    if (
+      entry?.checkedIn ||
+      entry?.songTitle?.trim() ||
+      entry?.dailyQuote?.trim() ||
+      entry?.promptAnswers?.ownerAnswer?.trim() ||
+      entry?.promptAnswers?.partnerAnswer?.trim()
+    ) {
+      activeSet.add(dk);
+    }
+  }
+  return activeSet.size;
+}
+
+export function calculateStreakDetails(
+  store: CatyStoreData,
+  todayKey: string
+): { streak: number; shieldsAvailable: number; usedShield: boolean } {
+  const earnedShields = Math.min(3, Math.floor(countTotalActiveDays(store) / 7));
+  let shieldsLeft = earnedShields;
+  let shieldsUsed = 0;
+
   let cursor = todayKey;
   if (!hasActivityOnDate(store, cursor)) {
-    // Allow streak to continue if user hasn't checked in yet today but did yesterday
     cursor = shiftDateKey(todayKey, -1);
-    if (!hasActivityOnDate(store, cursor)) return 0;
+    if (!hasActivityOnDate(store, cursor)) {
+      // Check if a Cat Nap Shield can bridge 1 missed day
+      const twoDaysAgo = shiftDateKey(todayKey, -2);
+      if (shieldsLeft > 0 && hasActivityOnDate(store, twoDaysAgo)) {
+        shieldsLeft -= 1;
+        shieldsUsed += 1;
+        cursor = twoDaysAgo;
+      } else {
+        return { streak: 0, shieldsAvailable: earnedShields, usedShield: false };
+      }
+    }
   }
 
   let streak = 0;
   for (let i = 0; i < 365; i += 1) {
-    if (!hasActivityOnDate(store, cursor)) break;
-    streak += 1;
-    cursor = shiftDateKey(cursor, -1);
+    if (hasActivityOnDate(store, cursor)) {
+      streak += 1;
+      cursor = shiftDateKey(cursor, -1);
+      continue;
+    }
+    const prevDay = shiftDateKey(cursor, -1);
+    if (shieldsLeft > 0 && hasActivityOnDate(store, prevDay)) {
+      shieldsLeft -= 1;
+      shieldsUsed += 1;
+      cursor = prevDay;
+      continue;
+    }
+    break;
   }
-  return streak;
+
+  return {
+    streak,
+    shieldsAvailable: shieldsLeft,
+    usedShield: shieldsUsed > 0,
+  };
+}
+
+export function calculateStreak(store: CatyStoreData, todayKey: string): number {
+  return calculateStreakDetails(store, todayKey).streak;
 }
 
 export interface MonthlyWrappedStats {

@@ -25,8 +25,9 @@ export function searchAcrossBoard(
   const hits: SearchHit[] = [];
 
   for (const photo of store.photos) {
-    const commentMatch = (photo.comments ?? []).some((c) =>
-      c.text.toLowerCase().includes(q)
+    const commentMatch = (photo.comments ?? []).some(
+      (c) =>
+        c.id !== '__polaroid_back_voice__' && c.text.toLowerCase().includes(q)
     );
     if (photo.caption.toLowerCase().includes(q) || commentMatch) {
       hits.push({

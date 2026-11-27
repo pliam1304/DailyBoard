@@ -4,9 +4,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
   Clock,
+  Dices,
   HeartHandshake,
+  LayoutList,
   Lock,
+  Pencil,
   Plus,
+  RotateCw,
   Shuffle,
   Smartphone,
   Sparkles,
@@ -17,6 +21,7 @@ import {
 import { ambientEngine } from '@/lib/audio';
 import {
   CAPSULE_CHARMS,
+  CAPSULE_FINISHES,
   CAPSULE_PALETTES,
   CAPSULE_PRESCRIPTIONS,
   CAPSULE_SCROLL_SKINS,
@@ -26,14 +31,17 @@ import {
   parseCapsuleStyle,
   type CapsuleCharmId,
   type CapsuleColorId,
+  type CapsuleFinishId,
   type CapsulePalette,
   type CapsulePrescriptionId,
   type CapsuleScrollSkinId,
   type JarVesselStyle,
 } from '@/lib/capsules';
+import { CapsuleGraphic } from '@/components/capsule/CapsuleGraphic';
 import {
   formatDisplayDateVi,
   formatShortDate,
+  parseDateKey,
   shiftDateKey,
   toLocalDateKey,
 } from '@/lib/date';
@@ -80,6 +88,8 @@ interface CapsuleJarModalProps {
   onDeleteNote: (id: string) => void;
 }
 
+type ModalViewMode = 'jar' | 'compose' | 'tray';
+
 interface PillBody {
   id: string;
   x: number;
@@ -91,10 +101,13 @@ interface PillBody {
   halfLen: number;
   radius: number;
   palette: CapsulePalette;
+  finishId: CapsuleFinishId;
+  scrollHex: string;
   isLocked: boolean;
   isToday: boolean;
   isFromPartner: boolean;
   dropping: boolean;
+  pouringOut: boolean;
 }
 
 interface FireflyParticle {
@@ -106,19 +119,51 @@ interface FireflyParticle {
   size: number;
 }
 
-const CANVAS_W = 320;
-const CANVAS_H = 382;
-const JAR_CENTER_X = 160;
-const FLOOR_Y = 352;
+const CANVAS_W = 304;
+const CANVAS_H = 368;
+const JAR_CENTER_X = 152;
+const FLOOR_Y = 342;
 
 const QUICK_CAPSULE_PROMPTS = [
-  'Một điều nhỏ hôm nay làm mình thấy biết ơn...',
+  'Một điều nhỏ hôm nay làm mình mỉm cười...',
   'Nếu ngày nào đó mở lại lúc đang buồn, hãy nhớ...',
   'Khoảnh khắc dễ thương nhất hôm nay là...',
-  'Gửi một cái ôm ấm cho ngày mai nhé...',
+  'Gửi một lời động viên ấm áp cho ngày mai...',
 ];
 
-function getJarMilestone(count: number): { badge: string; title: string; nextGoal: number } {
+function drawRoundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.arcTo(x + w, y, x + w, y + rad, rad);
+  ctx.lineTo(x + w, y + h - rad);
+  ctx.arcTo(x + w, y + h, x + w - rad, y + h, rad);
+  ctx.lineTo(x + rad, y + h);
+  ctx.arcTo(x, y + h, x, y + h - rad, rad);
+  ctx.lineTo(x, y + rad);
+  ctx.arcTo(x, y, x + rad, y, rad);
+  ctx.closePath();
+}
+
+function daysBetweenDateKeys(fromKey: string, toKey: string): number {
+  const a = parseDateKey(fromKey).getTime();
+  const b = parseDateKey(toKey).getTime();
+  return Math.max(1, Math.ceil((b - a) / (1000 * 60 * 60 * 24)));
+}
+
+function getJarMilestone(count: number): {
+  badge: string;
+  title: string;
+  nextGoal: number;
+} {
   if (count >= 100) {
     return { badge: '👑', title: 'Kho Báu Năm Tháng', nextGoal: 365 };
   }
@@ -180,49 +225,47 @@ function closestPointsOnSegments(
 }
 
 function getVesselNeckHalfWidth(vessel: JarVesselStyle): number {
-  if (vessel === 'star-bottle') return 36;
-  if (vessel === 'cat-jar') return 62;
-  return 45;
+  if (vessel === 'star-bottle') return 35;
+  if (vessel === 'cat-jar') return 58;
+  return 44;
 }
 
 function getJarHalfWidthAtY(y: number, vessel: JarVesselStyle): number {
   if (vessel === 'star-bottle') {
-    if (y < 76) return 36;
-    if (y < 116) {
-      const t = (y - 76) / 40;
+    if (y < 74) return 35;
+    if (y < 112) {
+      const t = (y - 74) / 38;
       const smooth = t * t * (3 - 2 * t);
-      return 36 + smooth * (88 - 36);
+      return 35 + smooth * (84 - 35);
     }
-    // Round spherical potion flask belly
-    const norm = Math.max(-0.96, Math.min(0.96, (y - 232) / 128));
-    return Math.max(48, Math.sqrt(1 - norm * norm) * 128);
+    const norm = Math.max(-0.96, Math.min(0.96, (y - 226) / 122));
+    return Math.max(46, Math.sqrt(1 - norm * norm) * 120);
   }
 
   if (vessel === 'cat-jar') {
-    if (y < 64) return 62;
-    if (y < 98) {
-      const t = (y - 64) / 34;
-      return 62 + t * t * (124 - 62);
+    if (y < 62) return 58;
+    if (y < 96) {
+      const t = (y - 62) / 34;
+      return 58 + t * t * (116 - 58);
     }
-    if (y > 328) {
-      const t = Math.min(1, (y - 328) / 26);
-      return 124 - t * 24;
+    if (y > 318) {
+      const t = Math.min(1, (y - 318) / 26);
+      return 116 - t * 22;
     }
-    return 124;
+    return 116;
   }
 
-  // Classic Apothecary Bottle
-  if (y < 68) return 45;
-  if (y < 110) {
-    const t = (y - 68) / 42;
+  if (y < 66) return 44;
+  if (y < 108) {
+    const t = (y - 66) / 42;
     const smooth = t * t * (3 - 2 * t);
-    return 45 + smooth * (122 - 45);
+    return 44 + smooth * (115 - 44);
   }
-  if (y > 332) {
-    const t = Math.min(1, (y - 332) / 22);
-    return 122 - t * 18;
+  if (y > 322) {
+    const t = Math.min(1, (y - 322) / 22);
+    return 115 - t * 18;
   }
-  return 122;
+  return 115;
 }
 
 export function CapsuleJarModal({
@@ -238,7 +281,13 @@ export function CapsuleJarModal({
   onUpdateNote,
   onDeleteNote,
 }: CapsuleJarModalProps) {
-  const [mode, setMode] = useState<'jar' | 'compose'>(initialMode);
+  const todayKey = toLocalDateKey();
+  const isNight = theme === 'cozy-night';
+  const isDuo = isSharedDuo(sharing);
+  const partnerRole = sharing.activeRole === 'owner' ? 'partner' : 'owner';
+  const partnerNick = getMemberNickname(sharing, partnerRole);
+
+  const [mode, setMode] = useState<ModalViewMode>(initialMode);
   const [jarVessel, setJarVessel] = useState<JarVesselStyle>(() =>
     loadSavedJarVessel()
   );
@@ -246,9 +295,12 @@ export function CapsuleJarModal({
     CapsulePrescriptionId | 'all' | 'partner'
   >('all');
 
-  // Composer state
+  // Composer / Edit Studio state
+  const [editingCapsuleId, setEditingCapsuleId] = useState<string | null>(null);
   const [selectedColor, setSelectedColor] =
     useState<CapsuleColorId>('clear-firefly');
+  const [selectedFinish, setSelectedFinish] =
+    useState<CapsuleFinishId>('gold-collar');
   const [selectedPresc, setSelectedPresc] =
     useState<CapsulePrescriptionId>('gratitude');
   const [selectedCharm, setSelectedCharm] = useState<CapsuleCharmId>('clover');
@@ -256,62 +308,73 @@ export function CapsuleJarModal({
     useState<CapsuleScrollSkinId>('parchment');
   const [titleDraft, setTitleDraft] = useState('');
   const [contentDraft, setContentDraft] = useState('');
-  const [unlockDateDraft, setUnlockDateDraft] = useState('');
+  const [unlockDateDraft, setUnlockDateDraft] = useState(() =>
+    shiftDateKey(toLocalDateKey(), 7)
+  );
   const [isPrivateDraft, setIsPrivateDraft] = useState(false);
   const [composePinDraft, setComposePinDraft] = useState('');
   const [composeError, setComposeError] = useState('');
+  const [spinKey, setSpinKey] = useState(0);
+  const [sealingCinema, setSealingCinema] = useState<'none' | 'open' | 'snap'>(
+    'none'
+  );
 
   // Session-verified PIN (strictly in React memory)
   const [sessionPin, setSessionPin] = useState('');
 
-  // Unwrapping & interactive pull-apart ritual state
-  const [selectedCapsule, setSelectedCapsule] = useState<NoteItem | null>(null);
+  // Unwrapping & interactive pull-apart ritual state (referenced by ID so never stale!)
+  const [selectedCapsuleId, setSelectedCapsuleId] = useState<string | null>(
+    null
+  );
   const [unwrapStage, setUnwrapStage] = useState<
     'sealed' | 'pin_prompt' | 'popping' | 'unfurled'
   >('sealed');
-  const [pullProgress, setPullProgress] = useState<number>(0); // 0..1 interactive finger drag to split shell!
+  const [pullProgress, setPullProgress] = useState<number>(0);
   const [decryptedText, setDecryptedText] = useState<string>('');
   const [pinUnlockInput, setPinUnlockInput] = useState('');
   const [pinUnlockError, setPinUnlockError] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Gyroscope, Uncork & Tilt-to-Pour state
+  // Gyroscope, Uncork & Pour state
   const [needsIosMotionPerm, setNeedsIosMotionPerm] = useState(false);
   const [motionEnabled, setMotionEnabled] = useState(false);
   const [visualTiltDeg, setVisualTiltDeg] = useState(0);
   const [corkOpen, setCorkOpen] = useState(false);
-  const [pourMode, setPourMode] = useState(false);
+  const [pouringActive, setPouringActive] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bodiesRef = useRef<PillBody[]>([]);
   const firefliesRef = useRef<FireflyParticle[]>([]);
   const gravityRef = useRef<{ gx: number; gy: number }>({ gx: 0, gy: 0.52 });
+  const visualTiltRef = useRef<number>(0);
   const dragStateRef = useRef<{
     active: boolean;
     startX: number;
     startY: number;
     lastX: number;
   }>({ active: false, startX: 0, startY: 0, lastX: 0 });
-  const capsuleSwipeRef = useRef<{ active: boolean; startX: number }>({
-    active: false,
-    startX: 0,
-  });
+  const capsuleSwipeRef = useRef<{
+    active: boolean;
+    startX: number;
+    latestProg: number;
+  }>({ active: false, startX: 0, latestProg: 0 });
   const corkOpenRef = useRef(false);
-  const pourModeRef = useRef(false);
   const jarVesselRef = useRef<JarVesselStyle>(jarVessel);
   const pendingDropIdRef = useRef<string | null>(null);
-
-  const todayKey = toLocalDateKey();
-  const isNight = theme === 'cozy-night';
-  const isDuo = isSharedDuo(sharing);
-  const partnerRole = sharing.activeRole === 'owner' ? 'partner' : 'owner';
-  const partnerNick = getMemberNickname(sharing, partnerRole);
 
   const capsules = useMemo(() => extractCapsulesFromNotes(notes), [notes]);
   const capsulesRef = useRef<NoteItem[]>(capsules);
   useEffect(() => {
     capsulesRef.current = capsules;
   }, [capsules]);
+
+  const selectedCapsule = useMemo(
+    () =>
+      selectedCapsuleId
+        ? capsules.find((c) => c.id === selectedCapsuleId) ?? null
+        : null,
+    [capsules, selectedCapsuleId]
+  );
 
   const todayCapsulesCount = useMemo(
     () => capsules.filter((c) => c.entryDate === todayKey).length,
@@ -323,7 +386,6 @@ export function CapsuleJarModal({
     [capsules, monthPrefix]
   );
 
-  // 7-day capsule rhythm strip
   const recentSevenDays = useMemo(() => {
     return [-6, -5, -4, -3, -2, -1, 0].map((offset) => {
       const dk = shiftDateKey(todayKey, offset);
@@ -341,6 +403,26 @@ export function CapsuleJarModal({
     [capsules.length]
   );
 
+  const filteredCapsules = useMemo(() => {
+    return capsules.filter((c) => {
+      if (filterPresc === 'all') return true;
+      if (filterPresc === 'partner') {
+        return Boolean(c.authorRole && c.authorRole !== sharing.activeRole);
+      }
+      return parseCapsuleStyle(c.paperStyle).prescriptionId === filterPresc;
+    });
+  }, [capsules, filterPresc, sharing.activeRole]);
+
+  const setCorkStateImmediate = (open: boolean) => {
+    corkOpenRef.current = open;
+    setCorkOpen(open);
+  };
+
+  const setTiltImmediate = (deg: number) => {
+    visualTiltRef.current = deg;
+    setVisualTiltDeg(deg);
+  };
+
   const handleChangeVessel = (v: JarVesselStyle) => {
     setJarVessel(v);
     jarVesselRef.current = v;
@@ -351,41 +433,58 @@ export function CapsuleJarModal({
     }
   };
 
-  useEffect(() => {
-    jarVesselRef.current = jarVessel;
-  }, [jarVessel]);
+  const randomizeComposerDesign = () => {
+    ambientEngine.playGlassClink(0.5);
+    const randColor =
+      CAPSULE_PALETTES[Math.floor(Math.random() * CAPSULE_PALETTES.length)].id;
+    const randFinish =
+      CAPSULE_FINISHES[Math.floor(Math.random() * CAPSULE_FINISHES.length)].id;
+    const randCharm =
+      CAPSULE_CHARMS[Math.floor(Math.random() * CAPSULE_CHARMS.length)].id;
+    const randScroll =
+      CAPSULE_SCROLL_SKINS[
+        Math.floor(Math.random() * CAPSULE_SCROLL_SKINS.length)
+      ].id;
+    setSelectedColor(randColor);
+    setSelectedFinish(randFinish);
+    setSelectedCharm(randCharm);
+    setSelectedScrollSkin(randScroll);
+  };
 
-  useEffect(() => {
-    corkOpenRef.current = corkOpen;
-  }, [corkOpen]);
-
-  useEffect(() => {
-    pourModeRef.current = pourMode;
-  }, [pourMode]);
+  const resetComposerForm = useCallback(() => {
+    setEditingCapsuleId(null);
+    setTitleDraft('');
+    setContentDraft('');
+    setComposePinDraft('');
+    setComposeError('');
+    setIsPrivateDraft(false);
+    setUnlockDateDraft(shiftDateKey(toLocalDateKey(), 7));
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
-      setSelectedCapsule(null);
+      setSelectedCapsuleId(null);
       setConfirmDeleteId(null);
-      setComposeError('');
-      setPourMode(false);
-      setCorkOpen(false);
+      resetComposerForm();
+      setCorkStateImmediate(false);
+      setPouringActive(false);
+      setTiltImmediate(0);
       setPullProgress(0);
 
-      // Initialize gentle floating firefly dust motes inside the jar
-      firefliesRef.current = Array.from({ length: 14 }, () => ({
-        x: 70 + Math.random() * 180,
-        y: 100 + Math.random() * 220,
-        vx: (Math.random() - 0.5) * 0.25,
-        vy: -0.12 - Math.random() * 0.22,
-        phase: Math.random() * Math.PI * 2,
-        size: 1.4 + Math.random() * 1.8,
-      }));
+      if (firefliesRef.current.length === 0) {
+        firefliesRef.current = Array.from({ length: 14 }, () => ({
+          x: 65 + Math.random() * 174,
+          y: 95 + Math.random() * 215,
+          vx: (Math.random() - 0.5) * 0.24,
+          vy: -0.12 - Math.random() * 0.2,
+          phase: Math.random() * Math.PI * 2,
+          size: 1.4 + Math.random() * 1.8,
+        }));
+      }
     }
-  }, [isOpen, initialMode]);
+  }, [isOpen, initialMode, resetComposerForm]);
 
-  // Detect iOS 13+ DeviceOrientation permission requirement vs automatic availability
   useEffect(() => {
     if (!isOpen || typeof window === 'undefined') return;
     const OrientationCtor = window.DeviceOrientationEvent as unknown as {
@@ -421,19 +520,21 @@ export function CapsuleJarModal({
   const shakeJar = useCallback((strength = 1) => {
     ambientEngine.playGlassClink(0.95);
     for (const b of bodiesRef.current) {
-      b.vx += (Math.random() - 0.5) * 11.5 * strength;
-      b.vy -= (4.8 + Math.random() * 6.5) * strength;
-      b.omega += (Math.random() - 0.5) * 0.36 * strength;
+      b.vx += (Math.random() - 0.5) * 11 * strength;
+      b.vy -= (4.5 + Math.random() * 6.2) * strength;
+      b.omega += (Math.random() - 0.5) * 0.34 * strength;
     }
   }, []);
 
   const inspectCapsule = useCallback(
     (capsule: NoteItem) => {
-      setSelectedCapsule(capsule);
+      setMode('jar');
+      setSelectedCapsuleId(capsule.id);
       setConfirmDeleteId(null);
       setPinUnlockInput('');
       setPinUnlockError('');
       setPullProgress(0);
+      capsuleSwipeRef.current = { active: false, startX: 0, latestProg: 0 };
 
       const isTimeLocked = Boolean(
         capsule.unlockDate && capsule.unlockDate > todayKey
@@ -476,27 +577,38 @@ export function CapsuleJarModal({
     inspectCapsuleRef.current = inspectCapsule;
   }, [inspectCapsule]);
 
-  // Attach DeviceOrientation (including upside-down Tilt-to-Pour!) + DeviceMotion shake
+  const beginEditCapsule = (capsule: NoteItem, plainContent: string) => {
+    const meta = parseCapsuleStyle(capsule.paperStyle);
+    setEditingCapsuleId(capsule.id);
+    setSelectedColor(meta.colorId);
+    setSelectedFinish(meta.finishId);
+    setSelectedPresc(meta.prescriptionId);
+    setSelectedCharm(meta.charmId);
+    setSelectedScrollSkin(meta.scrollSkinId);
+    setTitleDraft(capsule.title);
+    setContentDraft(plainContent);
+    setIsPrivateDraft(capsule.isPrivate);
+    setUnlockDateDraft(capsule.unlockDate || shiftDateKey(todayKey, 7));
+    setSelectedCapsuleId(null);
+    setMode('compose');
+  };
+
+  // DeviceOrientation + DeviceMotion shake
   useEffect(() => {
     if (!isOpen || !motionEnabled || typeof window === 'undefined') return;
 
     let lastShakeMs = 0;
     const onOrientation = (e: DeviceOrientationEvent) => {
       if (dragStateRef.current.active) return;
-      const gamma = typeof e.gamma === 'number' ? e.gamma : 0; // -90..90
-      const beta = typeof e.beta === 'number' ? e.beta : 55; // -180..180
-      const gx = Math.max(-0.95, Math.min(0.95, (gamma / 42) * 0.78));
+      const gamma = typeof e.gamma === 'number' ? e.gamma : 0;
+      const beta = typeof e.beta === 'number' ? e.beta : 55;
+      const gx = Math.max(-0.92, Math.min(0.92, (gamma / 42) * 0.76));
       const gy =
-        beta < -10
-          ? Math.max(-0.82, (beta / 45) * 0.68)
+        beta < -12
+          ? Math.max(-0.75, (beta / 45) * 0.65)
           : Math.max(0.24, Math.min(0.8, ((beta + 22) / 70) * 0.58));
       gravityRef.current = { gx, gy };
-      setVisualTiltDeg(
-        Math.max(
-          -115,
-          Math.min(115, beta < -15 ? gamma * 0.5 + 95 : gamma * 0.34)
-        )
-      );
+      setTiltImmediate(Math.max(-20, Math.min(20, gamma * 0.28)));
     };
 
     const onMotion = (e: DeviceMotionEvent) => {
@@ -507,7 +619,7 @@ export function CapsuleJarModal({
       const now = performance.now();
       if (mag > 34 && now - lastShakeMs > 700) {
         lastShakeMs = now;
-        shakeJar(1.1);
+        shakeJar(1.08);
       }
     };
 
@@ -519,7 +631,7 @@ export function CapsuleJarModal({
     };
   }, [isOpen, motionEnabled, shakeJar]);
 
-  // Sync physics bodies with real capsule notes
+  // Persist settled physics bodies across tab switches; ONLY spawn new body at bottleneck!
   useEffect(() => {
     if (!isOpen) return;
     const visibleNotes = capsules.slice(0, 90);
@@ -534,6 +646,8 @@ export function CapsuleJarModal({
       const prev = existingById.get(note.id);
       if (prev) {
         prev.palette = meta.palette;
+        prev.finishId = meta.finishId;
+        prev.scrollHex = meta.scrollSkin.swatchHex;
         prev.isLocked = isLocked;
         prev.isToday = isToday;
         prev.isFromPartner = isFromPartner;
@@ -545,81 +659,80 @@ export function CapsuleJarModal({
         pendingDropIdRef.current = null;
         return {
           id: note.id,
-          x: JAR_CENTER_X + (Math.random() - 0.5) * 8,
-          y: 12,
-          vx: (Math.random() - 0.5) * 1.4,
-          vy: 3.5,
-          angle: (Math.random() - 0.5) * 0.6,
+          x: JAR_CENTER_X + (Math.random() - 0.5) * 6,
+          y: 10,
+          vx: (Math.random() - 0.5) * 1.2,
+          vy: 3.6,
+          angle: (Math.random() - 0.5) * 0.5,
           omega: (Math.random() - 0.5) * 0.08,
-          halfLen: 8.8,
-          radius: 7.3,
+          halfLen: 9,
+          radius: 7.4,
           palette: meta.palette,
+          finishId: meta.finishId,
+          scrollHex: meta.scrollSkin.swatchHex,
           isLocked,
           isToday,
           isFromPartner,
           dropping: true,
+          pouringOut: false,
         };
       }
 
-      const col = index % 6;
-      const row = Math.floor(index / 6);
+      const col = index % 5;
+      const row = Math.floor(index / 5);
       return {
         id: note.id,
-        x: 80 + col * 31 + (row % 2) * 10 + (Math.random() - 0.5) * 6,
-        y: Math.max(92, FLOOR_Y - 14 - row * 17),
-        vx: (Math.random() - 0.5) * 0.8,
+        x: 76 + col * 36 + (row % 2) * 9 + (Math.random() - 0.5) * 5,
+        y: Math.max(92, FLOOR_Y - 12 - row * 16),
+        vx: (Math.random() - 0.5) * 0.5,
         vy: 0,
         angle: (Math.random() - 0.5) * Math.PI,
         omega: 0,
-        halfLen: 8.8,
-        radius: 7.3,
+        halfLen: 9,
+        radius: 7.4,
         palette: meta.palette,
+        finishId: meta.finishId,
+        scrollHex: meta.scrollSkin.swatchHex,
         isLocked,
         isToday,
         isFromPartner,
         dropping: false,
+        pouringOut: false,
       };
     });
 
     bodiesRef.current = nextBodies;
   }, [capsules, isOpen, todayKey, isDuo, sharing.activeRole]);
 
-  // Trigger a smooth animated Tilt-to-Pour ritual on desktop or 1-tap mobile
-  const triggerTiltPourOut = () => {
-    if (capsules.length === 0) return;
+  // Smooth, jam-free "Pour 1 Pill Out of Neck" animation!
+  const triggerSmoothPourOut = () => {
+    const candidates = filteredCapsules.filter(
+      (c) => !c.unlockDate || c.unlockDate <= todayKey
+    );
+    const pool = candidates.length > 0 ? candidates : filteredCapsules;
+    if (pool.length === 0 || pouringActive) return;
+
+    const chosenNote = pool[Math.floor(Math.random() * pool.length)];
+    const targetBody = bodiesRef.current.find((b) => b.id === chosenNote.id);
+
     ambientEngine.playCorkPop();
-    setCorkOpen(true);
-    setPourMode(true);
-    setVisualTiltDeg(112);
+    setCorkStateImmediate(true);
+    setPouringActive(true);
+    setTiltImmediate(-18);
 
-    // Invert gravity toward bottleneck so pills genuinely roll up & pour out!
-    gravityRef.current = { gx: 0.08, gy: -0.62 };
-    for (const b of bodiesRef.current) {
-      b.vx += (JAR_CENTER_X - b.x) * 0.035;
-      b.vy -= 4.2 + Math.random() * 2.5;
+    if (targetBody) {
+      targetBody.pouringOut = true;
+    } else {
+      setTimeout(() => {
+        setPouringActive(false);
+        setCorkStateImmediate(false);
+        setTiltImmediate(0);
+        inspectCapsule(chosenNote);
+      }, 420);
     }
-
-    // Safety fallback in case all pills jam at bottleneck shoulder
-    setTimeout(() => {
-      if (pourModeRef.current) {
-        setPourMode(false);
-        setCorkOpen(false);
-        setVisualTiltDeg(0);
-        gravityRef.current = { gx: 0, gy: 0.52 };
-        const unlocked = capsulesRef.current.filter(
-          (c) => !c.unlockDate || c.unlockDate <= todayKey
-        );
-        const pool = unlocked.length > 0 ? unlocked : capsulesRef.current;
-        if (pool.length > 0) {
-          inspectCapsuleRef.current(
-            pool[Math.floor(Math.random() * pool.length)]
-          );
-        }
-      }
-    }, 1550);
   };
 
-  // 60fps 2D Canvas Physics, Vessel Contours, Translucent Inner Scrolls & Firefly Dust
+  // 60fps 2D Canvas Physics & 3D Cylindrical Pill Renderer
   useEffect(() => {
     if (!isOpen || mode !== 'jar') return;
     let rafId = 0;
@@ -646,55 +759,75 @@ export function CapsuleJarModal({
       const vessel = jarVesselRef.current;
       const neckHalfW = getVesselNeckHalfWidth(vessel);
       const { gx, gy } = gravityRef.current;
-
-      // Funnel assist when uncorked & tilted upside-down so pills smoothly channel through neck
       const isUpsideDown = corkOpenRef.current && gy < -0.08;
 
       for (const b of bodies) {
-        let ax = gx;
-        if (isUpsideDown && b.y < 145) {
-          ax += (JAR_CENTER_X - b.x) * 0.014;
+        if (b.pouringOut) {
+          // Guided smooth levitation/pour right up through the open bottleneck!
+          b.vx = (JAR_CENTER_X - b.x) * 0.16;
+          b.vy = -5.8;
+          b.omega = 0.08;
+          b.x += b.vx;
+          b.y += b.vy;
+          b.angle += b.omega;
+
+          if (b.y < 14) {
+            b.pouringOut = false;
+            b.x = JAR_CENTER_X;
+            b.y = 140;
+            b.vx = 0;
+            b.vy = 1.2;
+            setPouringActive(false);
+            setCorkStateImmediate(false);
+            setTiltImmediate(0);
+            ambientEngine.playGlassClink(0.95);
+            const noteObj = capsulesRef.current.find((n) => n.id === b.id);
+            if (noteObj) inspectCapsuleRef.current(noteObj);
+            break;
+          }
+          continue;
         }
-        b.vx = (b.vx + ax) * 0.988;
-        b.vy = (b.vy + gy) * 0.988;
-        b.omega *= 0.94;
+
+        let ax = gx;
+        if (isUpsideDown && b.y < 150) {
+          ax += (JAR_CENTER_X - b.x) * 0.018;
+        }
+        b.vx = (b.vx + ax) * 0.986;
+        b.vy = (b.vy + gy) * 0.986;
+        b.omega *= 0.93;
         b.x += b.vx;
         b.y += b.vy;
         b.angle += b.omega;
-        if (b.dropping && b.y > 90) {
+        if (b.dropping && b.y > 88) {
           b.dropping = false;
         }
 
-        // Detect when a pill physically pours out of the open bottleneck into the user's hand!
+        // Physical tilt-phone pour detection when cork is opened manually
         if (
           corkOpenRef.current &&
           !b.dropping &&
-          b.y < 22 &&
+          b.y < 20 &&
           Math.abs(b.x - JAR_CENTER_X) < neckHalfW
         ) {
-          b.y = 128;
+          b.y = 135;
           b.x = JAR_CENTER_X;
           b.vx = 0;
-          b.vy = 1.5;
-          corkOpenRef.current = false;
-          pourModeRef.current = false;
-          setCorkOpen(false);
-          setPourMode(false);
-          setVisualTiltDeg(0);
+          b.vy = 1.2;
+          setCorkStateImmediate(false);
+          setPouringActive(false);
+          setTiltImmediate(0);
           gravityRef.current = { gx: 0, gy: 0.52 };
           ambientEngine.playGlassClink(1);
-
           const pouredNote = capsulesRef.current.find((n) => n.id === b.id);
-          if (pouredNote) {
-            inspectCapsuleRef.current(pouredNote);
-          }
+          if (pouredNote) inspectCapsuleRef.current(pouredNote);
           break;
         }
       }
 
-      // 3-iteration rigid capsule collision solver
+      // 3-iteration collision solver
       for (let iter = 0; iter < 3; iter += 1) {
         for (const b of bodies) {
+          if (b.pouringOut) continue;
           const cos = Math.cos(b.angle);
           const sin = Math.sin(b.angle);
 
@@ -702,7 +835,6 @@ export function CapsuleJarModal({
             const lx = b.x + sign * cos * b.halfLen;
             const ly = b.y + sign * sin * b.halfLen;
 
-            // Floor collision
             if (ly + b.radius > FLOOR_Y) {
               const pen = ly + b.radius - FLOOR_Y;
               b.y -= pen;
@@ -710,16 +842,15 @@ export function CapsuleJarModal({
                 if (iter === 0 && b.vy > 2.3) {
                   ambientEngine.playGlassClink(Math.min(1, b.vy / 8));
                 }
-                b.vy *= -0.32;
-                b.vx *= 0.88;
+                b.vy *= -0.3;
+                b.vx *= 0.86;
               }
-              b.omega -= sign * cos * pen * 0.032;
+              b.omega -= sign * cos * pen * 0.03;
             }
 
-            // Cork ceiling (opens inside bottleneck when corkOpen is true!)
             const inOpenNeck =
               corkOpenRef.current &&
-              Math.abs(lx - JAR_CENTER_X) < neckHalfW - b.radius * 0.5;
+              Math.abs(lx - JAR_CENTER_X) < neckHalfW - b.radius * 0.45;
             const ceilingY = b.dropping || inOpenNeck ? -42 : 54;
             if (ly - b.radius < ceilingY) {
               const pen = ceilingY - (ly - b.radius);
@@ -728,7 +859,6 @@ export function CapsuleJarModal({
               b.omega += sign * cos * pen * 0.025;
             }
 
-            // Vessel-specific glass side walls
             const halfW = getJarHalfWidthAtY(Math.max(28, ly), vessel);
             const minX = JAR_CENTER_X - halfW + b.radius;
             const maxX = JAR_CENTER_X + halfW - b.radius;
@@ -739,9 +869,9 @@ export function CapsuleJarModal({
                 if (iter === 0 && Math.abs(b.vx) > 2.4) {
                   ambientEngine.playGlassClink(Math.min(1, Math.abs(b.vx) / 8));
                 }
-                b.vx *= -0.36;
+                b.vx *= -0.34;
               }
-              b.omega += sign * sin * pen * 0.03;
+              b.omega += sign * sin * pen * 0.028;
             } else if (lx > maxX) {
               const pen = lx - maxX;
               b.x -= pen;
@@ -749,16 +879,16 @@ export function CapsuleJarModal({
                 if (iter === 0 && Math.abs(b.vx) > 2.4) {
                   ambientEngine.playGlassClink(Math.min(1, Math.abs(b.vx) / 8));
                 }
-                b.vx *= -0.36;
+                b.vx *= -0.34;
               }
-              b.omega -= sign * sin * pen * 0.03;
+              b.omega -= sign * sin * pen * 0.028;
             }
           }
         }
 
-        // Capsule-to-Capsule collisions
         for (let i = 0; i < bodies.length; i += 1) {
           const a = bodies[i];
+          if (a.pouringOut) continue;
           const acos = Math.cos(a.angle) * a.halfLen;
           const asin = Math.sin(a.angle) * a.halfLen;
           const ax1 = a.x - acos;
@@ -768,6 +898,7 @@ export function CapsuleJarModal({
 
           for (let j = i + 1; j < bodies.length; j += 1) {
             const b = bodies[j];
+            if (b.pouringOut) continue;
             const maxReach = a.halfLen + b.halfLen + a.radius + b.radius;
             if (
               Math.abs(b.x - a.x) > maxReach ||
@@ -812,21 +943,21 @@ export function CapsuleJarModal({
                 if (iter === 0 && -vn > 3.1) {
                   ambientEngine.playGlassClink(Math.min(0.85, -vn / 10));
                 }
-                const imp = -(1 + 0.28) * vn * 0.5;
+                const imp = -(1 + 0.26) * vn * 0.5;
                 a.vx -= imp * nx;
                 a.vy -= imp * ny;
                 b.vx += imp * nx;
                 b.vy += imp * ny;
 
-                a.omega -= (cp.s - 0.5) * 2 * imp * 0.018;
-                b.omega += (cp.t - 0.5) * 2 * imp * 0.018;
+                a.omega -= (cp.s - 0.5) * 2 * imp * 0.017;
+                b.omega += (cp.t - 0.5) * 2 * imp * 0.017;
               }
             }
           }
         }
       }
 
-      // Render Scene
+      // Render Jar & 3D Cylindrical Capsules
       ctx.save();
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
@@ -834,79 +965,76 @@ export function CapsuleJarModal({
       const traceVesselPath = () => {
         ctx.beginPath();
         if (vessel === 'star-bottle') {
-          ctx.moveTo(122, 30);
-          ctx.lineTo(198, 30);
-          ctx.lineTo(198, 76);
-          ctx.bezierCurveTo(202, 102, 290, 128, 290, 230);
-          ctx.bezierCurveTo(290, 326, 228, 360, 160, 360);
-          ctx.bezierCurveTo(92, 360, 30, 326, 30, 230);
-          ctx.bezierCurveTo(30, 128, 118, 102, 122, 76);
+          ctx.moveTo(116, 28);
+          ctx.lineTo(188, 28);
+          ctx.lineTo(188, 74);
+          ctx.bezierCurveTo(192, 98, 276, 124, 276, 224);
+          ctx.bezierCurveTo(276, 316, 218, 350, 152, 350);
+          ctx.bezierCurveTo(86, 350, 28, 316, 28, 224);
+          ctx.bezierCurveTo(28, 124, 112, 98, 116, 74);
           ctx.closePath();
         } else if (vessel === 'cat-jar') {
-          ctx.moveTo(96, 36);
-          ctx.lineTo(224, 36);
-          ctx.lineTo(224, 64);
-          ctx.bezierCurveTo(232, 82, 286, 92, 286, 130);
-          ctx.lineTo(286, 324);
-          ctx.quadraticCurveTo(286, 358, 250, 358);
-          ctx.lineTo(70, 358);
-          ctx.quadraticCurveTo(34, 358, 34, 324);
-          ctx.lineTo(34, 130);
-          ctx.bezierCurveTo(34, 92, 88, 82, 96, 64);
+          ctx.moveTo(92, 34);
+          ctx.lineTo(212, 34);
+          ctx.lineTo(212, 62);
+          ctx.bezierCurveTo(220, 80, 272, 90, 272, 126);
+          ctx.lineTo(272, 316);
+          ctx.quadraticCurveTo(272, 348, 238, 348);
+          ctx.lineTo(66, 348);
+          ctx.quadraticCurveTo(32, 348, 32, 316);
+          ctx.lineTo(32, 126);
+          ctx.bezierCurveTo(32, 90, 84, 80, 92, 62);
           ctx.closePath();
         } else {
-          ctx.moveTo(110, 30);
-          ctx.lineTo(210, 30);
-          ctx.lineTo(210, 66);
-          ctx.bezierCurveTo(212, 86, 286, 86, 286, 114);
-          ctx.lineTo(286, 332);
-          ctx.quadraticCurveTo(286, 358, 256, 358);
-          ctx.lineTo(64, 358);
-          ctx.quadraticCurveTo(34, 358, 34, 332);
-          ctx.lineTo(34, 114);
-          ctx.bezierCurveTo(34, 86, 108, 86, 110, 66);
+          ctx.moveTo(104, 28);
+          ctx.lineTo(200, 28);
+          ctx.lineTo(200, 64);
+          ctx.bezierCurveTo(202, 84, 272, 84, 272, 112);
+          ctx.lineTo(272, 322);
+          ctx.quadraticCurveTo(272, 348, 244, 348);
+          ctx.lineTo(60, 348);
+          ctx.quadraticCurveTo(32, 348, 32, 322);
+          ctx.lineTo(32, 112);
+          ctx.bezierCurveTo(32, 84, 102, 84, 104, 64);
           ctx.closePath();
         }
       };
 
-      // Soft table shadow
+      // Table shadow
       ctx.beginPath();
-      ctx.ellipse(JAR_CENTER_X, 368, 108, 8, 0, 0, Math.PI * 2);
+      ctx.ellipse(JAR_CENTER_X, 357, 102, 7.5, 0, 0, Math.PI * 2);
       ctx.fillStyle = isNight ? 'rgba(0,0,0,0.48)' : 'rgba(72,46,24,0.16)';
       ctx.fill();
 
-      // Cork / Cat-Ear Lid (clickable to uncork!)
+      // Cork / Cat-Ear Lid
       ctx.save();
       if (corkOpenRef.current) {
-        ctx.translate(38, -24);
-        ctx.rotate(0.48);
+        ctx.translate(36, -22);
+        ctx.rotate(0.45);
       }
       if (vessel === 'cat-jar') {
-        // Wooden lid with sculpted Mochi cat ears!
         ctx.fillStyle = '#c4905a';
         ctx.strokeStyle = '#6c4724';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(106, 26);
-        ctx.lineTo(118, 6);
-        ctx.lineTo(136, 22);
-        ctx.lineTo(184, 22);
-        ctx.lineTo(202, 6);
-        ctx.lineTo(214, 26);
+        ctx.moveTo(100, 25);
+        ctx.lineTo(112, 6);
+        ctx.lineTo(128, 21);
+        ctx.lineTo(176, 21);
+        ctx.lineTo(192, 6);
+        ctx.lineTo(204, 25);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
 
-        ctx.beginPath();
-        ctx.roundRect(92, 22, 136, 22, 8);
+        drawRoundedRectPath(ctx, 88, 20, 128, 20, 7);
         ctx.fill();
         ctx.stroke();
       } else {
-        const corkW = vessel === 'star-bottle' ? 66 : 88;
+        const corkW = vessel === 'star-bottle' ? 62 : 84;
         const corkX = JAR_CENTER_X - corkW / 2;
-        ctx.beginPath();
-        ctx.roundRect(corkX, 8, corkW, 38, [8, 8, 12, 12]);
-        const corkGrad = ctx.createLinearGradient(corkX, 8, corkX + corkW, 46);
+        drawRoundedRectPath(ctx, corkX, 8, corkW, 36, 9);
+        const corkGrad = ctx.createLinearGradient(corkX, 8, corkX + corkW, 44);
         corkGrad.addColorStop(0, '#cfa06b');
         corkGrad.addColorStop(0.5, '#b6834c');
         corkGrad.addColorStop(1, '#986939');
@@ -918,39 +1046,38 @@ export function CapsuleJarModal({
       }
       ctx.restore();
 
-      // Glass interior tint with dynamic light shift from tilt
+      // Glass interior tint
       traceVesselPath();
-      const lightShiftX = gx * 48;
+      const lightShiftX = gx * 42;
       const glassBg = ctx.createLinearGradient(
-        34 + lightShiftX,
-        30,
-        286 + lightShiftX,
-        358
+        32 + lightShiftX,
+        28,
+        272 + lightShiftX,
+        348
       );
       if (isNight) {
         glassBg.addColorStop(0, 'rgba(210, 232, 248, 0.14)');
         glassBg.addColorStop(0.5, 'rgba(180, 214, 238, 0.08)');
         glassBg.addColorStop(1, 'rgba(235, 220, 195, 0.18)');
       } else {
-        glassBg.addColorStop(0, 'rgba(255, 255, 255, 0.68)');
-        glassBg.addColorStop(0.5, 'rgba(232, 246, 254, 0.45)');
-        glassBg.addColorStop(1, 'rgba(255, 250, 240, 0.76)');
+        glassBg.addColorStop(0, 'rgba(255, 255, 255, 0.72)');
+        glassBg.addColorStop(0.5, 'rgba(234, 246, 254, 0.48)');
+        glassBg.addColorStop(1, 'rgba(255, 250, 240, 0.78)');
       }
       ctx.fillStyle = glassBg;
       ctx.fill();
 
-      // Clip interior for floating fireflies & vintage glass etching
+      // Interior clip (except pouringOut pill which exits top!)
       ctx.save();
       traceVesselPath();
       ctx.clip();
 
-      // Floating warm fireflies / dust motes
       for (const f of firefliesRef.current) {
-        f.x += f.vx - gx * 0.15;
+        f.x += f.vx - gx * 0.14;
         f.y += f.vy;
-        if (f.y < 75) f.y = 335;
-        if (f.x < 45) f.x = 270;
-        if (f.x > 275) f.x = 50;
+        if (f.y < 72) f.y = 330;
+        if (f.x < 42) f.x = 260;
+        if (f.x > 262) f.x = 46;
         const alpha =
           0.25 + 0.45 * Math.abs(Math.sin(frameTick * 0.035 + f.phase));
         ctx.beginPath();
@@ -962,21 +1089,23 @@ export function CapsuleJarModal({
         ctx.fill();
       }
 
-      // Etched motif on back glass
       ctx.fillStyle = isNight
         ? 'rgba(244, 232, 214, 0.12)'
         : 'rgba(92, 66, 44, 0.11)';
       ctx.font = '700 10px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'center';
-      if (vessel === 'cat-jar') {
-        ctx.fillText('🐾 MOCHI REMEDY JAR 🐾', JAR_CENTER_X, 142);
-      } else if (vessel === 'star-bottle') {
-        ctx.fillText('✦ STARLIGHT WISHES ✦', JAR_CENTER_X, 148);
-      } else {
-        ctx.fillText('APOTHECARY • SOUL PILLS', JAR_CENTER_X, 142);
-      }
+      ctx.fillText(
+        vessel === 'cat-jar'
+          ? '🐾 MOCHI REMEDY JAR 🐾'
+          : vessel === 'star-bottle'
+            ? '✦ STARLIGHT WISHES ✦'
+            : 'APOTHECARY • SOUL PILLS',
+        JAR_CENTER_X,
+        138
+      );
+      ctx.restore();
 
-      // Draw each 2-tone capsule (including translucent jelly shells with inner rolled scroll!)
+      // Draw every 3D-shaded capsule
       for (const b of bodies) {
         ctx.save();
         ctx.translate(b.x, b.y);
@@ -985,56 +1114,102 @@ export function CapsuleJarModal({
         const r = b.radius;
         const hl = b.halfLen;
 
-        // Soft drop shadow
-        ctx.beginPath();
-        ctx.roundRect(-hl - r, -r + 2, (hl + r) * 2, r * 2, r);
+        // Soft pill shadow
+        drawRoundedRectPath(ctx, -hl - r, -r + 2, (hl + r) * 2, r * 2, r);
         ctx.fillStyle = 'rgba(38, 24, 14, 0.16)';
         ctx.fill();
 
-        // If translucent jelly shell, draw the tiny rolled kraft paper scroll tucked inside FIRST!
+        // Inner rolled paper scroll for translucent crystal shells
         if (b.palette.translucent) {
-          ctx.beginPath();
-          ctx.roundRect(-1.5, -r * 0.56, hl + r * 0.55, r * 1.12, 2.2);
-          ctx.fillStyle = '#f5e4c3';
+          drawRoundedRectPath(ctx, -1, -r * 0.56, hl + r * 0.56, r * 1.12, 2);
+          ctx.fillStyle = b.scrollHex || '#f5e4c3';
           ctx.fill();
           ctx.lineWidth = 0.8;
-          ctx.strokeStyle = '#c49b66';
+          ctx.strokeStyle = '#b88e58';
           ctx.stroke();
 
-          // Tiny red ribbon tied around the miniature scroll!
           ctx.beginPath();
-          ctx.moveTo(hl * 0.42, -r * 0.56);
-          ctx.lineTo(hl * 0.42, r * 0.56);
+          ctx.moveTo(hl * 0.44, -r * 0.56);
+          ctx.lineTo(hl * 0.44, r * 0.56);
           ctx.lineWidth = 1.3;
-          ctx.strokeStyle = '#d95b6a';
+          ctx.strokeStyle = '#d95365';
           ctx.stroke();
         }
 
-        // Right half (halfB body)
+        // Right half (halfB with 4-stop 3D volumetric cylindrical gradient)
         ctx.beginPath();
         ctx.moveTo(-1, -r);
         ctx.lineTo(hl, -r);
         ctx.arc(hl, 0, r, -Math.PI / 2, Math.PI / 2);
         ctx.lineTo(-1, r);
         ctx.closePath();
-        ctx.fillStyle = b.palette.halfB;
+        const gradB = ctx.createLinearGradient(0, -r, 0, r);
+        gradB.addColorStop(0, b.palette.halfBLight);
+        gradB.addColorStop(0.45, b.palette.halfB);
+        gradB.addColorStop(0.85, b.palette.halfBDark);
+        gradB.addColorStop(1, b.palette.halfB);
+        ctx.fillStyle = gradB;
         ctx.fill();
 
-        // Left half (halfA opaque cap sleeve)
-        const capR = r + 0.45;
+        // Living snowglobe micro-particle pulse inside translucent capsules
+        if (b.palette.translucent) {
+          const glowAlpha =
+            0.45 + 0.45 * Math.abs(Math.sin(frameTick * 0.05 + b.x));
+          ctx.fillStyle =
+            b.palette.coreEffect === 'sakura'
+              ? `rgba(255, 166, 190, ${glowAlpha})`
+              : b.palette.coreEffect === 'ocean'
+                ? `rgba(220, 255, 252, ${glowAlpha})`
+                : `rgba(255, 232, 120, ${glowAlpha})`;
+          ctx.beginPath();
+          ctx.arc(hl * 0.68, -r * 0.25, 1.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Left sleeve cap (halfA with curved 3D elliptical seam!)
+        const capR = r + 0.55;
         ctx.beginPath();
         ctx.moveTo(1.2, -capR);
         ctx.lineTo(-hl, -capR);
         ctx.arc(-hl, 0, capR, -Math.PI / 2, Math.PI / 2, true);
         ctx.lineTo(1.2, capR);
+        ctx.ellipse(1.2, 0, 2.1, capR, 0, Math.PI / 2, -Math.PI / 2, true);
         ctx.closePath();
-        ctx.fillStyle = b.palette.halfA;
+        const gradA = ctx.createLinearGradient(0, -capR, 0, capR);
+        gradA.addColorStop(0, b.palette.halfALight);
+        gradA.addColorStop(0.45, b.palette.halfA);
+        gradA.addColorStop(0.85, b.palette.halfADark);
+        gradA.addColorStop(1, b.palette.halfA);
+        ctx.fillStyle = gradA;
         ctx.fill();
 
-        // Outer capsule stroke (golden ring if today, rose ring if from partner!)
-        ctx.beginPath();
-        ctx.roundRect(-hl - r, -r, (hl + r) * 2, r * 2, r);
-        ctx.lineWidth = b.isToday || b.isFromPartner ? 2 : 1.35;
+        // Finish details on cap
+        if (b.finishId === 'star-dust' || b.palette.shimmer) {
+          ctx.fillStyle = 'rgba(255,248,210,0.88)';
+          ctx.beginPath();
+          ctx.arc(-hl * 0.65, -r * 0.15, 1.1, 0, Math.PI * 2);
+          ctx.arc(-hl * 0.2, r * 0.32, 0.9, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (b.finishId === 'candy-stripe') {
+          ctx.strokeStyle = 'rgba(255,255,255,0.34)';
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.moveTo(-hl * 0.9, r * 0.6);
+          ctx.lineTo(-hl * 0.35, -r * 0.6);
+          ctx.moveTo(-hl * 0.3, r * 0.6);
+          ctx.lineTo(0.5, -r * 0.6);
+          ctx.stroke();
+        }
+
+        // Metallic Gold Collar Band
+        if (b.finishId === 'gold-collar' || b.finishId === 'star-dust') {
+          ctx.fillStyle = b.palette.collarHex;
+          ctx.fillRect(0.2, -capR, 2.3, capR * 2);
+        }
+
+        // Crisp outer capsule border
+        drawRoundedRectPath(ctx, -hl - r, -r, (hl + r) * 2, r * 2, r);
+        ctx.lineWidth = b.isToday || b.isFromPartner ? 1.9 : 1.35;
         ctx.strokeStyle = b.isFromPartner
           ? '#e05a7a'
           : b.isToday
@@ -1042,48 +1217,43 @@ export function CapsuleJarModal({
             : b.palette.stroke;
         ctx.stroke();
 
-        // Seam line
-        ctx.beginPath();
-        ctx.moveTo(1, -r);
-        ctx.lineTo(1, r);
-        ctx.lineWidth = 1.05;
-        ctx.strokeStyle = 'rgba(58, 38, 24, 0.25)';
-        ctx.stroke();
-
-        // Glossy specular shine
-        ctx.beginPath();
-        ctx.roundRect(-hl - r * 0.45, -r * 0.68, (hl + r) * 1.35, r * 0.42, 3);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.66)';
+        // Specular shine along top cylinder
+        drawRoundedRectPath(
+          ctx,
+          -hl - r * 0.45,
+          -r * 0.68,
+          (hl + r) * 1.38,
+          r * 0.38,
+          2.2
+        );
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
         ctx.fill();
 
         if (b.isLocked) {
           ctx.fillStyle = '#fff6d6';
           ctx.beginPath();
-          ctx.arc(-hl * 0.45, 0, 2.2, 0, Math.PI * 2);
+          ctx.arc(-hl * 0.45, 0, 2, 0, Math.PI * 2);
           ctx.fill();
         }
 
         ctx.restore();
       }
 
-      ctx.restore(); // End interior clip
-
-      // Outer glass rim & dynamic tilt refraction glare
+      // Outer glass rim & reflections
       traceVesselPath();
-      ctx.lineWidth = 3.2;
+      ctx.lineWidth = 3;
       ctx.strokeStyle = isNight
         ? 'rgba(218, 236, 250, 0.52)'
         : 'rgba(124, 164, 192, 0.72)';
       ctx.stroke();
 
-      // Lip rim + neck charm for Star Bottle
-      const rimW = vessel === 'star-bottle' ? 88 : vessel === 'cat-jar' ? 140 : 112;
-      const rimY = vessel === 'cat-jar' ? 32 : 25;
-      ctx.beginPath();
-      ctx.roundRect(JAR_CENTER_X - rimW / 2, rimY, rimW, 8, 4);
+      const rimW =
+        vessel === 'star-bottle' ? 84 : vessel === 'cat-jar' ? 132 : 106;
+      const rimY = vessel === 'cat-jar' ? 30 : 24;
+      drawRoundedRectPath(ctx, JAR_CENTER_X - rimW / 2, rimY, rimW, 7.5, 3.8);
       ctx.fillStyle = isNight
         ? 'rgba(220, 238, 252, 0.34)'
-        : 'rgba(255, 255, 255, 0.8)';
+        : 'rgba(255, 255, 255, 0.82)';
       ctx.fill();
       ctx.lineWidth = 2;
       ctx.strokeStyle = isNight
@@ -1092,23 +1262,21 @@ export function CapsuleJarModal({
       ctx.stroke();
 
       if (vessel === 'star-bottle') {
-        // Golden neck ribbon & star charm
         ctx.fillStyle = '#e0a938';
-        ctx.fillRect(121, 66, 78, 5);
-        ctx.font = '14px sans-serif';
-        ctx.fillText('⭐', 194, 80);
+        ctx.fillRect(115, 64, 74, 4.5);
+        ctx.font = '13px sans-serif';
+        ctx.fillText('⭐', 184, 77);
       }
 
-      // Dynamic curved glass glare shifting subtly with tilt
-      const glareOffset = Math.max(-8, Math.min(8, -gx * 10));
+      const glareOffset = Math.max(-7, Math.min(7, -gx * 9));
       ctx.beginPath();
       if (vessel === 'star-bottle') {
-        ctx.arc(JAR_CENTER_X, 230, 114, Math.PI * 0.72, Math.PI * 1.24);
+        ctx.arc(JAR_CENTER_X, 224, 108, Math.PI * 0.72, Math.PI * 1.24);
       } else {
-        ctx.moveTo(48 + glareOffset, 122);
-        ctx.lineTo(48 + glareOffset, 322);
+        ctx.moveTo(45 + glareOffset, 118);
+        ctx.lineTo(45 + glareOffset, 312);
       }
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 4.8;
       ctx.lineCap = 'round';
       ctx.strokeStyle = isNight
         ? 'rgba(255, 255, 255, 0.18)'
@@ -1123,7 +1291,7 @@ export function CapsuleJarModal({
     return () => cancelAnimationFrame(rafId);
   }, [isOpen, mode, isNight]);
 
-  // Canvas pointer handlers: tap cork to uncork, drag jar to tilt/pour, or tap pill to inspect!
+  // Rotation-aware Canvas Pointer Handlers
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     dragStateRef.current = {
@@ -1141,19 +1309,17 @@ export function CapsuleJarModal({
     const stepX = e.clientX - dragStateRef.current.lastX;
     dragStateRef.current.lastX = e.clientX;
 
-    const gx = Math.max(-0.95, Math.min(0.95, dx / 85));
-    // Dragging upward or strongly sideways when cork is open lets user invert gravity to pour!
+    const gx = Math.max(-0.92, Math.min(0.92, dx / 85));
     const gy = corkOpenRef.current
-      ? Math.max(-0.72, Math.min(0.85, 0.45 - Math.abs(dx) / 130 + dy / 120))
-      : Math.max(-0.45, Math.min(0.85, 0.52 + dy / 160));
+      ? Math.max(-0.68, Math.min(0.85, 0.44 + dy / 115))
+      : Math.max(-0.42, Math.min(0.85, 0.52 + dy / 160));
     gravityRef.current = { gx, gy };
-    const maxDeg = corkOpenRef.current ? 105 : 22;
-    setVisualTiltDeg(Math.max(-maxDeg, Math.min(maxDeg, dx * 0.35)));
+    setTiltImmediate(Math.max(-22, Math.min(22, dx * 0.2)));
 
     if (Math.abs(stepX) > 22) {
       for (const b of bodiesRef.current) {
-        b.vx += stepX * 0.12;
-        b.vy -= Math.min(3.5, Math.abs(stepX) * 0.06);
+        b.vx += stepX * 0.11;
+        b.vy -= Math.min(3.4, Math.abs(stepX) * 0.055);
       }
     }
   };
@@ -1165,26 +1331,32 @@ export function CapsuleJarModal({
         e.clientY - dragStateRef.current.startY
       ) > 10;
     dragStateRef.current.active = false;
-    if (!pourModeRef.current) {
-      gravityRef.current = { gx: 0, gy: 0.52 };
-      setVisualTiltDeg(0);
-    }
+    gravityRef.current = { gx: 0, gy: 0.52 };
+    setTiltImmediate(0);
 
     if (!moved && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
-      const cx = ((e.clientX - rect.left) * CANVAS_W) / rect.width;
-      const cy = ((e.clientY - rect.top) * CANVAS_H) / rect.height;
+      // Inverse-rotate pointer around element center so hit-testing is exact even when tilted!
+      const centerClientX = rect.left + rect.width / 2;
+      const centerClientY = rect.top + rect.height / 2;
+      const relX = e.clientX - centerClientX;
+      const relY = e.clientY - centerClientY;
+      const rad = (-visualTiltRef.current * Math.PI) / 180;
+      const unrotX = relX * Math.cos(rad) - relY * Math.sin(rad);
+      const unrotY = relX * Math.sin(rad) + relY * Math.cos(rad);
 
-      // Tap on Cork / Lid at top of jar -> toggle cork open/closed!
-      if (cy < 58 && Math.abs(cx - JAR_CENTER_X) < 72) {
+      const scale = CANVAS_W / (rect.width || CANVAS_W);
+      const cx = CANVAS_W / 2 + unrotX * scale;
+      const cy = CANVAS_H / 2 + unrotY * scale;
+
+      if (cy < 56 && Math.abs(cx - JAR_CENTER_X) < 70) {
         ambientEngine.playCorkPop();
-        setCorkOpen((prev) => !prev);
+        setCorkStateImmediate(!corkOpenRef.current);
         return;
       }
 
-      // Tap on a specific capsule inside the jar -> pick it up!
       let closest: PillBody | null = null;
-      let bestDist = 22;
+      let bestDist = 24;
       for (const b of bodiesRef.current) {
         const d = Math.hypot(b.x - cx, b.y - cy);
         if (d < bestDist) {
@@ -1194,9 +1366,7 @@ export function CapsuleJarModal({
       }
       if (closest) {
         const found = capsules.find((n) => n.id === closest!.id);
-        if (found) {
-          inspectCapsule(found);
-        }
+        if (found) inspectCapsule(found);
       }
     }
   };
@@ -1213,29 +1383,30 @@ export function CapsuleJarModal({
       meta.prescriptionId,
       meta.openedCount + 1,
       meta.charmId,
-      meta.scrollSkinId
+      meta.scrollSkinId,
+      meta.finishId
     );
     onUpdateNote(capsule.id, { paperStyle: nextStyle });
 
     setTimeout(() => {
       ambientEngine.playPaperUnfurl();
       setUnwrapStage('unfurled');
-    }, 460);
+    }, 430);
   };
 
-  // Interactive finger-swipe on the giant 3D capsule to physically pull its two halves apart!
   const onCapsulePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (unwrapStage !== 'sealed' || isSelectedTimeLocked) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    capsuleSwipeRef.current = { active: true, startX: e.clientX };
+    capsuleSwipeRef.current = { active: true, startX: e.clientX, latestProg: 0 };
   };
 
   const onCapsulePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!capsuleSwipeRef.current.active || !selectedCapsule) return;
     const dist = Math.abs(e.clientX - capsuleSwipeRef.current.startX);
-    const prog = Math.min(1, dist / 72);
+    const prog = Math.min(1, dist / 68);
+    capsuleSwipeRef.current.latestProg = prog;
     setPullProgress(prog);
-    if (prog >= 0.65) {
+    if (prog >= 0.62) {
       capsuleSwipeRef.current.active = false;
       triggerPopAndUnfurl(selectedCapsule, decryptedText);
     }
@@ -1244,11 +1415,11 @@ export function CapsuleJarModal({
   const onCapsulePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!capsuleSwipeRef.current.active || !selectedCapsule) return;
     const dist = Math.abs(e.clientX - capsuleSwipeRef.current.startX);
+    const latest = capsuleSwipeRef.current.latestProg;
     capsuleSwipeRef.current.active = false;
-    // If user simply tapped the capsule (< 8px drag), pop it open right away!
-    if (dist < 8) {
+    if (dist < 8 || latest >= 0.62) {
       triggerPopAndUnfurl(selectedCapsule, decryptedText);
-    } else if (pullProgress < 0.65) {
+    } else {
       setPullProgress(0);
     }
   };
@@ -1293,37 +1464,22 @@ export function CapsuleJarModal({
   };
 
   const handleDrawRandomCapsule = () => {
-    const matchesFilter = (c: NoteItem) => {
-      if (filterPresc === 'all') return true;
-      if (filterPresc === 'partner') {
-        return Boolean(c.authorRole && c.authorRole !== sharing.activeRole);
-      }
-      return parseCapsuleStyle(c.paperStyle).prescriptionId === filterPresc;
-    };
-
-    const candidates = capsules.filter(
-      (c) => (!c.unlockDate || c.unlockDate <= todayKey) && matchesFilter(c)
+    const unlocked = filteredCapsules.filter(
+      (c) => !c.unlockDate || c.unlockDate <= todayKey
     );
-
     shakeJar(0.95);
-    if (candidates.length === 0) {
-      const fallbackLocked = capsules.filter(matchesFilter);
-      if (fallbackLocked.length > 0) {
-        inspectCapsule(
-          fallbackLocked[Math.floor(Math.random() * fallbackLocked.length)]
-        );
-      }
-      return;
-    }
+    const pool = unlocked.length > 0 ? unlocked : filteredCapsules;
+    if (pool.length === 0) return;
 
-    const picked = candidates[Math.floor(Math.random() * candidates.length)];
+    const picked = pool[Math.floor(Math.random() * pool.length)];
     setTimeout(() => {
       inspectCapsule(picked);
-    }, 280);
+    }, 260);
   };
 
-  const handleDropNewCapsule = async (e: React.FormEvent) => {
+  const handleSaveOrDropCapsule = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (sealingCinema !== 'none') return;
     setComposeError('');
     const cleanText = sanitizeText(contentDraft, 8000);
     if (!cleanText) {
@@ -1331,10 +1487,10 @@ export function CapsuleJarModal({
       return;
     }
 
-    if (selectedPresc === 'time_locked' && !unlockDateDraft) {
-      setComposeError('Hãy chọn ngày mở khóa cho viên thuốc hẹn ngày nhé!');
-      return;
-    }
+    const effectiveUnlockDate =
+      selectedPresc === 'time_locked'
+        ? unlockDateDraft || shiftDateKey(todayKey, 7)
+        : undefined;
 
     let finalContent = cleanText;
     if (isPrivateDraft && journalPin) {
@@ -1357,9 +1513,37 @@ export function CapsuleJarModal({
     const prescMeta =
       CAPSULE_PRESCRIPTIONS.find((p) => p.id === selectedPresc) ??
       CAPSULE_PRESCRIPTIONS[0];
-    const newId = createUuid();
     const nowIso = new Date().toISOString();
 
+    if (editingCapsuleId) {
+      const existing = capsules.find((c) => c.id === editingCapsuleId);
+      const prevOpened = existing
+        ? parseCapsuleStyle(existing.paperStyle).openedCount
+        : 0;
+      onUpdateNote(editingCapsuleId, {
+        title:
+          sanitizeText(titleDraft, 120) ||
+          `${prescMeta.emoji} ${prescMeta.label}`,
+        content: finalContent,
+        paperStyle: encodeCapsuleStyle(
+          selectedColor,
+          selectedPresc,
+          prevOpened,
+          selectedCharm,
+          selectedScrollSkin,
+          selectedFinish
+        ),
+        isPrivate: isPrivateDraft,
+        unlockDate: effectiveUnlockDate,
+        updatedAt: nowIso,
+      });
+      ambientEngine.playGlassClink(0.7);
+      resetComposerForm();
+      setMode('tray');
+      return;
+    }
+
+    const newId = createUuid();
     const newCapsule: NoteItem = {
       id: newId,
       entryDate,
@@ -1373,33 +1557,39 @@ export function CapsuleJarModal({
         selectedPresc,
         0,
         selectedCharm,
-        selectedScrollSkin
+        selectedScrollSkin,
+        selectedFinish
       ),
       isPrivate: isPrivateDraft,
-      unlockDate:
-        selectedPresc === 'time_locked' && unlockDateDraft
-          ? unlockDateDraft
-          : undefined,
+      unlockDate: effectiveUnlockDate,
       pinned: false,
       authorRole: sharing.activeRole,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
 
-    pendingDropIdRef.current = newId;
-    setCorkOpen(true);
-    setMode('jar');
-    ambientEngine.playCorkPop();
-    onAddNote(newCapsule);
-
-    setTitleDraft('');
-    setContentDraft('');
-    setComposePinDraft('');
-    setIsPrivateDraft(false);
-    setUnlockDateDraft('');
+    // Play 3D Snap-Together Sealing Cinema before dropping into the jar!
+    setSealingCinema('open');
+    ambientEngine.playPaperUnfurl();
 
     setTimeout(() => {
-      setCorkOpen(false);
+      setSealingCinema('snap');
+      ambientEngine.playCapsulePop();
+    }, 260);
+
+    setTimeout(() => {
+      setSealingCinema('none');
+      pendingDropIdRef.current = newId;
+      setCorkStateImmediate(true);
+      setSelectedCapsuleId(null);
+      setMode('jar');
+      ambientEngine.playCorkPop();
+      onAddNote(newCapsule);
+      resetComposerForm();
+
+      setTimeout(() => {
+        setCorkStateImmediate(false);
+      }, 950);
     }, 980);
   };
 
@@ -1412,26 +1602,35 @@ export function CapsuleJarModal({
     selectedCapsule?.unlockDate && selectedCapsule.unlockDate > todayKey
   );
 
+  const activeComposePalette =
+    CAPSULE_PALETTES.find((c) => c.id === selectedColor) ?? CAPSULE_PALETTES[0];
+  const activeComposeCharm =
+    CAPSULE_CHARMS.find((c) => c.id === selectedCharm) ?? CAPSULE_CHARMS[0];
+  const activeComposePresc =
+    CAPSULE_PRESCRIPTIONS.find((p) => p.id === selectedPresc) ??
+    CAPSULE_PRESCRIPTIONS[0];
+  const activeComposeScroll =
+    CAPSULE_SCROLL_SKINS.find((s) => s.id === selectedScrollSkin) ??
+    CAPSULE_SCROLL_SKINS[0];
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-3 backdrop-blur-sm sm:p-5"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-2.5 backdrop-blur-sm sm:p-5"
       onClick={onClose}
     >
       <div
-        className={`my-auto w-full max-w-3xl rounded-[30px] border-2 p-4 shadow-2xl sm:p-6 ${
+        className={`my-auto w-full max-w-3xl rounded-[28px] border-2 p-4 shadow-2xl sm:p-6 ${
           isNight
             ? 'border-[#6f523b] bg-[#261c15] text-[#f4e8d6]'
             : 'border-[#c89d6d] bg-[#faf3e3] text-[#382619]'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Header + Milestone Rank */}
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        {/* Top Header + Clean 3-Mode Navigation */}
+        <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-extrabold">
-                💊 Lọ Thuốc Tâm Hồn
-              </h2>
+              <h2 className="text-base font-extrabold">💊 Lọ Thuốc Tâm Hồn</h2>
               <span className="rounded-full bg-[#b57a29] px-2.5 py-0.5 text-[11px] font-extrabold text-white">
                 {capsules.length} viên
               </span>
@@ -1452,26 +1651,50 @@ export function CapsuleJarModal({
             </p>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => {
-                setSelectedCapsule(null);
-                setMode(mode === 'jar' ? 'compose' : 'jar');
+                setMode('jar');
               }}
-              className={`inline-flex items-center gap-1 rounded-2xl px-3.5 py-1.5 text-xs font-extrabold shadow-xs transition ${
-                mode === 'compose'
-                  ? 'bg-[#3a75a8] text-white'
-                  : 'bg-[#3d7c57] text-white hover:bg-[#316647]'
+              className={`rounded-2xl px-3 py-1.5 text-xs font-extrabold transition ${
+                mode === 'jar'
+                  ? 'bg-[#b57a29] text-white shadow-xs'
+                  : isNight
+                    ? 'bg-[#36281e] text-[#eadbc6]'
+                    : 'bg-[#efe2cc] text-[#4a3425]'
               }`}
             >
-              {mode === 'compose' ? (
-                <>Xem lọ thủy tinh</>
-              ) : (
-                <>
-                  <Plus className="h-3.5 w-3.5" /> Bào chế viên mới
-                </>
-              )}
+              🫙 Lọ thuốc
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                resetComposerForm();
+                setMode('compose');
+              }}
+              className={`inline-flex items-center gap-1 rounded-2xl px-3 py-1.5 text-xs font-extrabold transition ${
+                mode === 'compose'
+                  ? 'bg-[#3d7c57] text-white shadow-xs'
+                  : isNight
+                    ? 'bg-[#36281e] text-[#eadbc6]'
+                    : 'bg-[#efe2cc] text-[#4a3425]'
+              }`}
+            >
+              <Plus className="h-3.5 w-3.5" /> Bào chế
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('tray')}
+              className={`inline-flex items-center gap-1 rounded-2xl px-3 py-1.5 text-xs font-extrabold transition ${
+                mode === 'tray'
+                  ? 'bg-[#3a75a8] text-white shadow-xs'
+                  : isNight
+                    ? 'bg-[#36281e] text-[#eadbc6]'
+                    : 'bg-[#efe2cc] text-[#4a3425]'
+              }`}
+            >
+              <LayoutList className="h-3.5 w-3.5" /> Khay ({capsules.length})
             </button>
             <button
               type="button"
@@ -1488,106 +1711,171 @@ export function CapsuleJarModal({
           </div>
         </div>
 
-        {mode === 'compose' ? (
-          /* --- COMPOSE & CRAFT A NEW CAPSULE --- */
-          <form onSubmit={(e) => void handleDropNewCapsule(e)} className="space-y-3.5">
-            {/* Live Capsule Preview + 8 Shell Palettes (including 2 Translucent Crystal Shells!) */}
+        {/* === TAB 2: BESPOKE 3D CAPSULE CRAFTING STUDIO === */}
+        {mode === 'compose' && (
+          <form
+            onSubmit={(e) => void handleSaveOrDropCapsule(e)}
+            className="max-h-[75vh] space-y-3.5 overflow-y-auto pr-1"
+          >
+            {/* Interactive 3D Holo-Stage with Floating Pedestal & 360° Spin */}
             <div
-              className={`flex flex-col items-center justify-between gap-3 rounded-2xl border p-3.5 sm:flex-row ${
+              className={`relative flex flex-col items-center justify-between gap-4 overflow-hidden rounded-3xl border-2 p-4 sm:flex-row ${
+                isNight
+                  ? 'border-[#6f523b] bg-gradient-to-br from-[#38291e] via-[#2a1f17] to-[#1e1610]'
+                  : 'border-[#dfcba9] bg-gradient-to-br from-[#fffefa] via-[#faf0de] to-[#f1e1c5]'
+              }`}
+            >
+              {/* Subtle moving ambient sheen across stage */}
+              <div
+                aria-hidden="true"
+                className="animate-holo-sweep pointer-events-none absolute inset-y-0 w-24 bg-gradient-to-r from-transparent via-white/25 to-transparent"
+              />
+
+              <div className="flex flex-col items-center sm:flex-row sm:gap-5">
+                <div className="py-2">
+                  <CapsuleGraphic
+                    palette={activeComposePalette}
+                    finishId={selectedFinish}
+                    charmEmoji={activeComposeCharm.emoji}
+                    rxStamp={activeComposePresc.rxCode}
+                    scrollHex={activeComposeScroll.swatchHex}
+                    splitProgress={sealingCinema === 'open' ? 0.65 : 0}
+                    snapLocking={sealingCinema === 'snap'}
+                    interactive3D
+                    float3D
+                    showPedestal
+                    spinTriggerKey={spinKey}
+                    size="lg"
+                  />
+                </div>
+                <div className="text-center sm:text-left">
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-[#b57a29]/15 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#b57a29]">
+                    ✦ Mô hình 3D tương tác (di chuột / chạm để nghiêng)
+                  </div>
+                  <div className="mt-1 text-sm font-extrabold">
+                    {activeComposePalette.label} •{' '}
+                    {
+                      CAPSULE_FINISHES.find((f) => f.id === selectedFinish)
+                        ?.shortLabel
+                    }
+                  </div>
+                  <div className="mt-0.5 text-xs opacity-80">
+                    {activeComposePalette.subtitle} • Kèm{' '}
+                    {activeComposeCharm.emoji} {activeComposeCharm.label}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    ambientEngine.playGlassClink(0.45);
+                    setSpinKey((k) => k + 1);
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-2xl border px-3 py-2 text-xs font-extrabold transition ${
+                    isNight
+                      ? 'border-[#6f523b] bg-[#3d2d22] text-[#f4e8d6] hover:bg-[#4a3729]'
+                      : 'border-[#d6bc98] bg-white text-[#4a3425] shadow-2xs hover:bg-[#f4ead8]'
+                  }`}
+                >
+                  <RotateCw className="h-3.5 w-3.5" /> Xoay 360°
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    randomizeComposerDesign();
+                    setSpinKey((k) => k + 1);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-2xl bg-[#b57a29] px-3.5 py-2 text-xs font-extrabold text-white shadow-xs transition hover:bg-[#99651f]`}
+                >
+                  <Dices className="h-4 w-4" /> Phối ngẫu nhiên
+                </button>
+              </div>
+            </div>
+
+            {/* Step 1: 10 Collectible 3D Shell Palettes */}
+            <div
+              className={`rounded-2xl border p-3 text-xs ${
                 isNight
                   ? 'border-[#5a4230] bg-[#32251c]'
                   : 'border-[#dfcba9] bg-white/85'
               }`}
             >
-              <div className="flex items-center gap-3">
-                {(() => {
-                  const pal =
-                    CAPSULE_PALETTES.find((c) => c.id === selectedColor) ??
-                    CAPSULE_PALETTES[0];
-                  const ch =
-                    CAPSULE_CHARMS.find((c) => c.id === selectedCharm) ??
-                    CAPSULE_CHARMS[0];
-                  return (
-                    <div
-                      className="relative flex h-10 w-24 items-center overflow-hidden rounded-full shadow-md"
-                      style={{ border: `2px solid ${pal.stroke}` }}
-                    >
-                      <div
-                        className="h-full w-1/2"
-                        style={{ backgroundColor: pal.halfA }}
-                      />
-                      <div
-                        className="relative flex h-full w-1/2 items-center justify-center"
-                        style={{
-                          backgroundColor: pal.translucent
-                            ? 'rgba(255,248,230,0.45)'
-                            : pal.halfB,
-                        }}
-                      >
-                        {pal.translucent && (
-                          <span className="h-4 w-8 rounded-xs border border-[#c49b66] bg-[#f5e4c3] text-[9px] leading-4 text-center">
-                            {ch.emoji}
-                          </span>
-                        )}
-                      </div>
-                      <div className="pointer-events-none absolute top-1 left-3 right-3 h-1.5 rounded-full bg-white/65" />
-                    </div>
-                  );
-                })()}
-                <div>
-                  <div className="text-xs font-extrabold">
-                    Vỏ viên nhộng:{' '}
-                    {CAPSULE_PALETTES.find((c) => c.id === selectedColor)?.label}
-                  </div>
-                  <div className="text-[11px] opacity-75">
-                    {CAPSULE_PALETTES.find((c) => c.id === selectedColor)?.translucent
-                      ? 'Vỏ pha lê nhìn xuyên thấy cuộn thư bên trong ✨'
-                      : 'Vỏ nhộng 2 màu cổ điển'}
-                  </div>
-                </div>
+              <div className="mb-2 font-extrabold">
+                1. Chọn chất liệu & màu vỏ nhộng 3D (10 phiên bản):
               </div>
-
-              <div className="flex flex-wrap items-center gap-1.5">
-                {CAPSULE_PALETTES.map((pal) => (
-                  <button
-                    key={pal.id}
-                    type="button"
-                    onClick={() => setSelectedColor(pal.id)}
-                    title={pal.label}
-                    className={`flex h-7 w-10 overflow-hidden rounded-full border-2 transition ${
-                      selectedColor === pal.id
-                        ? 'scale-110 ring-2 ring-[#b57a29]'
-                        : 'opacity-80 hover:opacity-100'
-                    }`}
-                    style={{ borderColor: pal.stroke }}
-                  >
-                    <span
-                      className="h-full w-1/2"
-                      style={{ backgroundColor: pal.halfA }}
-                    />
-                    <span
-                      className="h-full w-1/2"
-                      style={{
-                        backgroundColor: pal.translucent ? '#fdf6e4' : pal.halfB,
-                      }}
-                    />
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {CAPSULE_PALETTES.map((pal) => {
+                  const selected = selectedColor === pal.id;
+                  return (
+                    <button
+                      key={pal.id}
+                      type="button"
+                      onClick={() => setSelectedColor(pal.id)}
+                      className={`flex flex-col items-center gap-1 rounded-2xl border p-2 text-center transition ${
+                        selected
+                          ? 'border-[#b57a29] bg-[#fff6e0] text-[#382619] ring-2 ring-[#b57a29]/45 -translate-y-0.5 shadow-xs'
+                          : isNight
+                            ? 'border-[#4a3728] bg-[#261c15] text-[#eadbc6] hover:bg-[#38291f]'
+                            : 'border-[#e8d9c0] bg-[#fbf7ef] text-[#382619] hover:bg-[#f3e8d4]'
+                      }`}
+                    >
+                      <CapsuleGraphic
+                        palette={pal}
+                        finishId={selectedFinish}
+                        size="xs"
+                      />
+                      <div className="w-full truncate text-[11px] font-extrabold">
+                        {pal.label}
+                      </div>
+                      <div className="w-full truncate text-[9px] opacity-70">
+                        {pal.subtitle}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Keepsake Charm + Scroll Paper Skin Row */}
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            {/* Step 2: Shell Finish + Keepsake Charm + Scroll Skin */}
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
               <div
                 className={`rounded-2xl border p-2.5 text-xs ${
                   isNight
                     ? 'border-[#5a4230] bg-[#32251c]'
-                    : 'border-[#dfcba9] bg-white/80'
+                    : 'border-[#dfcba9] bg-white/85'
                 }`}
               >
-                <div className="mb-1.5 font-extrabold">
-                  Kỷ vật nhỏ bỏ kèm trong viên thuốc:
+                <div className="mb-1.5 font-extrabold">2. Họa tiết & Đai vỏ:</div>
+                <div className="flex flex-wrap gap-1">
+                  {CAPSULE_FINISHES.map((fn) => (
+                    <button
+                      key={fn.id}
+                      type="button"
+                      onClick={() => setSelectedFinish(fn.id)}
+                      className={`rounded-xl border px-2.5 py-1 text-[11px] font-bold transition ${
+                        selectedFinish === fn.id
+                          ? 'border-transparent bg-[#b57a29] text-white'
+                          : isNight
+                            ? 'border-[#4a3728] bg-[#261c15] text-[#eadbc6]'
+                            : 'border-[#e5d5bc] bg-[#fbf5e9] text-[#382619]'
+                      }`}
+                    >
+                      {fn.shortLabel}
+                    </button>
+                  ))}
                 </div>
+              </div>
+
+              <div
+                className={`rounded-2xl border p-2.5 text-xs ${
+                  isNight
+                    ? 'border-[#5a4230] bg-[#32251c]'
+                    : 'border-[#dfcba9] bg-white/85'
+                }`}
+              >
+                <div className="mb-1.5 font-extrabold">3. Kỷ vật bỏ kèm:</div>
                 <div className="flex flex-wrap gap-1">
                   {CAPSULE_CHARMS.map((ch) => (
                     <button
@@ -1597,7 +1885,7 @@ export function CapsuleJarModal({
                       title={ch.label}
                       className={`rounded-xl border px-2.5 py-1 text-xs font-bold transition ${
                         selectedCharm === ch.id
-                          ? 'border-[#b57a29] bg-[#fff3d6] text-[#4a3425]'
+                          ? 'border-[#b57a29] bg-[#fff3d6] text-[#4a3425] scale-105'
                           : isNight
                             ? 'border-[#4a3728] bg-[#261c15]'
                             : 'border-[#e5d5bc] bg-[#fbf5e9]'
@@ -1613,10 +1901,10 @@ export function CapsuleJarModal({
                 className={`rounded-2xl border p-2.5 text-xs ${
                   isNight
                     ? 'border-[#5a4230] bg-[#32251c]'
-                    : 'border-[#dfcba9] bg-white/80'
+                    : 'border-[#dfcba9] bg-white/85'
                 }`}
               >
-                <div className="mb-1.5 font-extrabold">Chất liệu cuộn giấy thư:</div>
+                <div className="mb-1.5 font-extrabold">4. Giấy cuộn thư:</div>
                 <div className="flex flex-wrap gap-1">
                   {CAPSULE_SCROLL_SKINS.map((sk) => (
                     <button
@@ -1638,10 +1926,10 @@ export function CapsuleJarModal({
               </div>
             </div>
 
-            {/* Emotional Prescription Selector */}
+            {/* Step 3: Emotional Prescription */}
             <div>
               <div className="mb-1.5 text-xs font-extrabold">
-                Đơn thuốc cảm xúc (dành cho lúc bóc lại):
+                5. Đơn thuốc cảm xúc (dành cho lúc mở xem):
               </div>
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
                 {CAPSULE_PRESCRIPTIONS.map((pr) => {
@@ -1673,27 +1961,54 @@ export function CapsuleJarModal({
 
             {selectedPresc === 'time_locked' && (
               <div
-                className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-xs ${
+                className={`space-y-2 rounded-2xl border p-3 text-xs ${
                   isNight
                     ? 'border-[#5a4230] bg-[#32251c]'
                     : 'border-[#dfcba9] bg-[#fff9ec]'
                 }`}
               >
-                <span className="inline-flex items-center gap-1.5 font-bold">
-                  <Clock className="h-4 w-4 text-[#b57a29]" />
-                  Niêm phong viên thuốc cho tới ngày:
-                </span>
-                <input
-                  type="date"
-                  min={todayKey}
-                  value={unlockDateDraft}
-                  onChange={(e) => setUnlockDateDraft(e.target.value)}
-                  className="rounded-xl border border-[#c8a982] bg-white px-3 py-1 text-xs font-bold text-[#382619]"
-                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 font-bold">
+                    <Clock className="h-4 w-4 text-[#b57a29]" />
+                    Niêm phong cho tới ngày:
+                  </span>
+                  <input
+                    type="date"
+                    min={shiftDateKey(todayKey, 1)}
+                    value={unlockDateDraft}
+                    onChange={(e) => setUnlockDateDraft(e.target.value)}
+                    className="rounded-xl border border-[#c8a982] bg-white px-3 py-1 text-xs font-bold text-[#382619]"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: 'Ngày mai', days: 1 },
+                    { label: '+7 ngày', days: 7 },
+                    { label: '+30 ngày', days: 30 },
+                    { label: '+6 tháng', days: 180 },
+                    { label: '+1 năm', days: 365 },
+                  ].map((preset) => {
+                    const target = shiftDateKey(todayKey, preset.days);
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => setUnlockDateDraft(target)}
+                        className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                          unlockDateDraft === target
+                            ? 'bg-[#b57a29] text-white'
+                            : 'bg-black/10 hover:bg-black/15'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
-            {/* Quick Starters */}
+            {/* Quick Writing Starters */}
             <div className="flex flex-wrap gap-1.5">
               {QUICK_CAPSULE_PROMPTS.map((starter) => (
                 <button
@@ -1785,29 +2100,151 @@ export function CapsuleJarModal({
             <div className="flex items-center justify-between gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => setMode('jar')}
+                onClick={() => {
+                  resetComposerForm();
+                  setMode('jar');
+                }}
                 className={`rounded-2xl px-4 py-2 text-xs font-bold ${
                   isNight
                     ? 'bg-[#3a2b20] text-[#eadbc6]'
                     : 'bg-[#ede0cc] text-[#382619]'
                 }`}
               >
-                Quay lại lọ
+                Hủy
               </button>
               <button
                 type="submit"
-                className="inline-flex items-center gap-1.5 rounded-2xl bg-[#3d7c57] px-5 py-2.5 text-xs font-extrabold text-white shadow-md transition hover:bg-[#316647]"
+                disabled={sealingCinema !== 'none'}
+                className="inline-flex items-center gap-1.5 rounded-2xl bg-[#3d7c57] px-5 py-2.5 text-xs font-extrabold text-white shadow-md transition hover:bg-[#316647] disabled:opacity-60"
               >
-                <Check className="h-4 w-4" /> Đóng viên nhộng & Thả vào lọ
+                <Check className="h-4 w-4" />
+                {sealingCinema !== 'none'
+                  ? 'Đang đóng khóa 3D...'
+                  : editingCapsuleId
+                    ? 'Lưu cập nhật viên thuốc'
+                    : 'Đóng viên nhộng & Thả vào lọ'}
               </button>
             </div>
           </form>
-        ) : (
-          /* --- INTERACTIVE 2D PHYSICS JAR, VESSEL SWITCHER & SWIPE-TO-POP STAGE --- */
+        )}
+
+        {/* === TAB 3: ORGANIZED APOTHECARY TRAY ("KHAY THUỐC") === */}
+        {mode === 'tray' && (
+          <div className="space-y-3">
+            {/* Filter Pills */}
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setFilterPresc('all')}
+                className={`rounded-full px-3 py-1 text-[11px] font-bold ${
+                  filterPresc === 'all'
+                    ? 'bg-[#4a3425] text-white'
+                    : isNight
+                      ? 'bg-[#32251c] text-[#eadbc6]'
+                      : 'bg-[#efe4d1] text-[#4a3425]'
+                }`}
+              >
+                Tất cả ({capsules.length})
+              </button>
+              {CAPSULE_PRESCRIPTIONS.map((pr) => {
+                const cnt = capsules.filter(
+                  (c) =>
+                    parseCapsuleStyle(c.paperStyle).prescriptionId === pr.id
+                ).length;
+                return (
+                  <button
+                    key={pr.id}
+                    type="button"
+                    onClick={() => setFilterPresc(pr.id)}
+                    className={`rounded-full px-3 py-1 text-[11px] font-bold ${
+                      filterPresc === pr.id
+                        ? 'bg-[#3a75a8] text-white'
+                        : isNight
+                          ? 'bg-[#32251c] text-[#eadbc6]'
+                          : 'bg-[#efe4d1] text-[#4a3425]'
+                    }`}
+                  >
+                    {pr.emoji} {pr.shortTag} ({cnt})
+                  </button>
+                );
+              })}
+            </div>
+
+            {filteredCapsules.length === 0 ? (
+              <div
+                className={`rounded-3xl border-2 border-dashed p-8 text-center text-xs ${
+                  isNight
+                    ? 'border-[#5a4230] text-[#cbb7a1]'
+                    : 'border-[#d6bc98] text-[#6b5340]'
+                }`}
+              >
+                Chưa có viên thuốc nào trong ngăn này.
+              </div>
+            ) : (
+              <div className="grid max-h-[60vh] grid-cols-1 gap-2.5 overflow-y-auto pr-1 sm:grid-cols-2">
+                {filteredCapsules.map((cap) => {
+                  const meta = parseCapsuleStyle(cap.paperStyle);
+                  const locked = Boolean(
+                    cap.unlockDate && cap.unlockDate > todayKey
+                  );
+                  return (
+                    <button
+                      key={cap.id}
+                      type="button"
+                      onClick={() => inspectCapsule(cap)}
+                      className={`flex items-center justify-between gap-3 rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 ${
+                        isNight
+                          ? 'border-[#5a4230] bg-[#32251c] hover:bg-[#3c2c21]'
+                          : 'border-[#dfcba9] bg-white/90 hover:bg-[#fffaf0]'
+                      }`}
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <CapsuleGraphic
+                          palette={meta.palette}
+                          finishId={meta.finishId}
+                          charmEmoji={meta.charm.emoji}
+                          scrollHex={meta.scrollSkin.swatchHex}
+                          size="sm"
+                          className="shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 text-[10px] font-extrabold opacity-75">
+                            <span>
+                              {meta.prescription.emoji}{' '}
+                              {meta.prescription.shortTag}
+                            </span>
+                            <span>•</span>
+                            <span>{formatShortDate(cap.entryDate)}</span>
+                          </div>
+                          <div className="truncate text-xs font-extrabold">
+                            {cap.title}
+                          </div>
+                          <div className="mt-0.5 text-[10px] opacity-75">
+                            {locked
+                              ? `⏳ Mở sau ${daysBetweenDateKeys(todayKey, cap.unlockDate!)} ngày (${formatShortDate(cap.unlockDate!)})`
+                              : cap.isPrivate
+                                ? '🔒 Khóa riêng tư'
+                                : `Đã mở ${meta.openedCount} lần`}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="shrink-0 rounded-xl bg-[#b57a29]/15 px-2.5 py-1 text-[11px] font-extrabold text-[#b57a29]">
+                        Cầm lên
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* === TAB 1: INTERACTIVE 2D PHYSICS JAR & SWIPE-TO-POP STAGE === */}
+        {mode === 'jar' && (
           <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-12">
-            {/* Left: Vessel Selector + 60fps Glass Jar Canvas */}
+            {/* Left: Vessel Selector + Responsive 60fps Glass Jar Canvas */}
             <div className="flex flex-col items-center md:col-span-6">
-              {/* 3 Glass Vessel Switcher Pills */}
               <div className="mb-1.5 flex flex-wrap items-center justify-center gap-1.5">
                 {JAR_VESSELS.map((v) => (
                   <button
@@ -1829,7 +2266,7 @@ export function CapsuleJarModal({
               </div>
 
               <div
-                className="relative transition-transform duration-300 select-none"
+                className="relative flex w-full justify-center overflow-visible transition-transform duration-200 select-none"
                 style={{ transform: `rotate(${visualTiltDeg}deg)` }}
               >
                 <canvas
@@ -1838,7 +2275,12 @@ export function CapsuleJarModal({
                   onPointerMove={handleCanvasPointerMove}
                   onPointerUp={handleCanvasPointerUp}
                   onPointerCancel={handleCanvasPointerUp}
-                  style={{ width: CANVAS_W, height: CANVAS_H, touchAction: 'none' }}
+                  style={{
+                    width: '100%',
+                    maxWidth: CANVAS_W,
+                    aspectRatio: `${CANVAS_W} / ${CANVAS_H}`,
+                    touchAction: 'none',
+                  }}
                   className="cursor-grab active:cursor-grabbing"
                 />
                 {capsules.length === 0 && (
@@ -1848,7 +2290,7 @@ export function CapsuleJarModal({
                       Lọ thủy tinh đang chờ viên đầu tiên
                     </p>
                     <p className="mt-0.5 text-[11px] opacity-75">
-                      Bấm “Bào chế viên mới” để thả ký ức hôm nay vào lọ nhé!
+                      Bấm “Bào chế” để tự phối màu và thả viên nhộng hôm nay vào lọ!
                     </p>
                   </div>
                 )}
@@ -1861,14 +2303,14 @@ export function CapsuleJarModal({
                     onClick={() => void requestMotionPermission()}
                     className="inline-flex items-center gap-1 rounded-full bg-[#3a75a8] px-3 py-1 font-extrabold text-white shadow-2xs"
                   >
-                    <Smartphone className="h-3.5 w-3.5" /> Bật nghiêng theo điện thoại
+                    <Smartphone className="h-3.5 w-3.5" /> Bật nghiêng điện thoại
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => {
                     ambientEngine.playCorkPop();
-                    setCorkOpen((prev) => !prev);
+                    setCorkStateImmediate(!corkOpen);
                   }}
                   className={`rounded-full px-2.5 py-0.5 font-bold transition ${
                     corkOpen
@@ -1879,16 +2321,15 @@ export function CapsuleJarModal({
                   }`}
                 >
                   {corkOpen
-                    ? '🔓 Đang mở nắp (dốc ngược máy để đổ thuốc!)'
-                    : '🔒 Chạm nắp bần để mở'}
+                    ? '🔓 Nắp đang mở (dốc máy hoặc chạm viên thuốc)'
+                    : '🔒 Chạm nút bần để mở nắp'}
                 </button>
               </div>
             </div>
 
-            {/* Right: Interactive Swipe-to-Pop Unwrap OR Prescription & 7-Day Rhythm */}
+            {/* Right: Interactive 3D Pull-Apart Stage OR Prescription & 7-Day Rhythm */}
             <div className="space-y-3 md:col-span-6">
               {selectedCapsule && selectedMeta ? (
-                /* --- INTERACTIVE FINGER-SWIPE / TWIST & POP UNWRAP STAGE --- */
                 <div
                   className={`rounded-3xl border-2 p-4 shadow-md ${
                     isNight
@@ -1904,92 +2345,42 @@ export function CapsuleJarModal({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setSelectedCapsule(null)}
+                      onClick={() => setSelectedCapsuleId(null)}
                       className="text-[11px] font-bold opacity-70 hover:opacity-100"
                     >
                       Đóng lại ✕
                     </button>
                   </div>
 
-                  {/* Tactile Draggable / Popping Two-Tone Capsule */}
+                  {/* Interactive 3D SVG Capsule that Splits Apart with Your Finger! */}
                   <div
                     onPointerDown={onCapsulePointerDown}
                     onPointerMove={onCapsulePointerMove}
                     onPointerUp={onCapsulePointerUp}
                     onPointerCancel={onCapsulePointerUp}
                     style={{ touchAction: 'none' }}
-                    className="relative my-4 flex h-20 cursor-pointer items-center justify-center overflow-hidden select-none"
+                    className="relative my-2 flex flex-col items-center justify-center py-2 cursor-pointer select-none"
                   >
-                    {unwrapStage === 'popping' || unwrapStage === 'unfurled' ? (
-                      <>
-                        <div className="absolute -top-0.5 flex items-center gap-2">
-                          <Sparkles className="h-4 w-4 animate-ping text-[#e0a938]" />
-                          <span
-                            title={selectedMeta.charm.label}
-                            className="animate-bounce text-xl drop-shadow-sm"
-                          >
-                            {selectedMeta.charm.emoji}
-                          </span>
-                          <Sparkles className="h-4 w-4 animate-ping text-[#e0a938]" />
-                        </div>
-                        <div
-                          className="h-11 w-14 rounded-l-full shadow-md transition-all duration-500"
-                          style={{
-                            backgroundColor: selectedMeta.palette.halfA,
-                            border: `2px solid ${selectedMeta.palette.stroke}`,
-                            transform: 'translateX(-64px) rotate(-24deg)',
-                          }}
-                        />
-                        <div
-                          className="h-11 w-14 rounded-r-full shadow-md transition-all duration-500"
-                          style={{
-                            backgroundColor: selectedMeta.palette.translucent
-                              ? 'rgba(255,248,232,0.55)'
-                              : selectedMeta.palette.halfB,
-                            border: `2px solid ${selectedMeta.palette.stroke}`,
-                            transform: 'translateX(64px) rotate(24deg)',
-                          }}
-                        />
-                      </>
-                    ) : (
-                      /* Interactive Pull-Apart Capsule Halves */
-                      <div className="relative flex items-center justify-center">
-                        {pullProgress > 0.08 && (
-                          <span className="absolute text-base">
-                            {selectedMeta.charm.emoji}
-                          </span>
-                        )}
-                        <div
-                          className="relative h-12 w-14 rounded-l-full shadow-lg transition-transform duration-75"
-                          style={{
-                            backgroundColor: selectedMeta.palette.halfA,
-                            border: `2.5px solid ${selectedMeta.palette.stroke}`,
-                            borderRightWidth: '1px',
-                            transform: `translateX(${-pullProgress * 36}px) rotate(${-pullProgress * 14}deg)`,
-                          }}
-                        >
-                          <div className="pointer-events-none absolute top-1.5 left-3 right-1 h-2 rounded-l-full bg-white/60" />
-                        </div>
-                        <div
-                          className="relative flex h-12 w-14 items-center justify-center rounded-r-full shadow-lg transition-transform duration-75"
-                          style={{
-                            backgroundColor: selectedMeta.palette.translucent
-                              ? 'rgba(255,248,232,0.55)'
-                              : selectedMeta.palette.halfB,
-                            border: `2.5px solid ${selectedMeta.palette.stroke}`,
-                            borderLeftWidth: '1px',
-                            transform: `translateX(${pullProgress * 36}px) rotate(${pullProgress * 14}deg)`,
-                          }}
-                        >
-                          {selectedMeta.palette.translucent && (
-                            <span className="h-5 w-9 rounded-xs border border-[#c49b66] bg-[#f5e4c3] text-center text-[10px] leading-5">
-                              {selectedMeta.charm.emoji}
-                            </span>
-                          )}
-                          <div className="pointer-events-none absolute top-1.5 left-1 right-3 h-2 rounded-r-full bg-white/60" />
-                        </div>
-                      </div>
+                    {(unwrapStage === 'popping' ||
+                      unwrapStage === 'unfurled') && (
+                      <Sparkles className="pointer-events-none absolute top-0 h-5 w-5 animate-ping text-[#e0a938]" />
                     )}
+                    <CapsuleGraphic
+                      palette={selectedMeta.palette}
+                      finishId={selectedMeta.finishId}
+                      charmEmoji={selectedMeta.charm.emoji}
+                      rxStamp={selectedMeta.prescription.rxCode}
+                      scrollHex={selectedMeta.scrollSkin.swatchHex}
+                      splitProgress={
+                        unwrapStage === 'popping' || unwrapStage === 'unfurled'
+                          ? 1
+                          : pullProgress
+                      }
+                      interactive3D={unwrapStage === 'sealed'}
+                      float3D={unwrapStage === 'sealed'}
+                      showPedestal={unwrapStage === 'sealed'}
+                      size="lg"
+                    />
                   </div>
 
                   {isSelectedTimeLocked ? (
@@ -1997,8 +2388,19 @@ export function CapsuleJarModal({
                       <Clock className="mx-auto mb-1 h-5 w-5 text-[#b57a29]" />
                       <div className="font-extrabold">{selectedCapsule.title}</div>
                       <p className="mt-1 opacity-85">
-                        Viên thuốc này đang được niêm phong kín cho tới ngày{' '}
-                        <strong>{formatShortDate(selectedCapsule.unlockDate!)}</strong>.
+                        Viên thuốc đang niêm phong kín — còn{' '}
+                        <strong>
+                          {daysBetweenDateKeys(
+                            todayKey,
+                            selectedCapsule.unlockDate!
+                          )}{' '}
+                          ngày
+                        </strong>{' '}
+                        nữa (mở ngày{' '}
+                        <strong>
+                          {formatShortDate(selectedCapsule.unlockDate!)}
+                        </strong>
+                        ).
                       </p>
                     </div>
                   ) : unwrapStage === 'pin_prompt' ? (
@@ -2026,14 +2428,16 @@ export function CapsuleJarModal({
                         </button>
                       </div>
                       {pinUnlockError && (
-                        <p className="font-bold text-[#c54650]">{pinUnlockError}</p>
+                        <p className="font-bold text-[#c54650]">
+                          {pinUnlockError}
+                        </p>
                       )}
                     </form>
                   ) : unwrapStage === 'sealed' ? (
                     <div className="space-y-2.5 text-center">
                       <div className="text-xs font-bold opacity-85">
-                        Bỏ lọ ngày {formatDisplayDateVi(selectedCapsule.entryDate)} •
-                        Vuốt tách viên thuốc hoặc bấm bên dưới
+                        Bỏ lọ ngày {formatDisplayDateVi(selectedCapsule.entryDate)}{' '}
+                        • Vuốt ngang viên thuốc hoặc bấm nút dưới
                       </div>
                       <button
                         type="button"
@@ -2042,11 +2446,11 @@ export function CapsuleJarModal({
                         }
                         className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#b57a29] py-2.5 text-xs font-extrabold text-white shadow-md transition hover:bg-[#99651f]"
                       >
-                        <Sparkles className="h-4 w-4" /> Xoay & Bóc viên nhộng
+                        <Sparkles className="h-4 w-4" /> Xoay & Bóc vỏ kén
                       </button>
                     </div>
                   ) : (
-                    /* Unfurled Custom-Skin Scroll + Keepsake Charm */
+                    /* Unfurled Scroll */
                     <div
                       className={`animate-scroll-unfurl rounded-2xl border p-4 shadow-inner ${selectedMeta.scrollSkin.bgClass} ${selectedMeta.scrollSkin.textClass} ${selectedMeta.scrollSkin.borderClass}`}
                     >
@@ -2055,10 +2459,7 @@ export function CapsuleJarModal({
                           📅 {formatDisplayDateVi(selectedCapsule.entryDate)}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <span
-                            title={selectedMeta.charm.label}
-                            className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-bold"
-                          >
+                          <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-bold">
                             {selectedMeta.charm.emoji} {selectedMeta.charm.label}
                           </span>
                           <AuthorBadge
@@ -2075,36 +2476,45 @@ export function CapsuleJarModal({
                         {decryptedText}
                       </p>
 
-                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-current/15 pt-2.5">
-                        {confirmDeleteId === selectedCapsule.id ? (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-current/15 pt-2.5">
+                        <div className="flex items-center gap-1">
+                          {confirmDeleteId === selectedCapsule.id ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onDeleteNote(selectedCapsule.id);
+                                setSelectedCapsuleId(null);
+                                setConfirmDeleteId(null);
+                              }}
+                              className="inline-flex items-center gap-1 rounded-xl bg-[#c54650] px-2.5 py-1 text-[11px] font-extrabold text-white"
+                            >
+                              <Trash2 className="h-3 w-3" /> Xác nhận xóa
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfirmDeleteId(selectedCapsule.id)
+                              }
+                              className="inline-flex items-center gap-1 rounded-xl px-2 py-1 text-[11px] font-bold text-[#c54650] hover:bg-black/5"
+                            >
+                              <Trash2 className="h-3 w-3" /> Xóa
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => {
-                              onDeleteNote(selectedCapsule.id);
-                              setSelectedCapsule(null);
-                              setConfirmDeleteId(null);
-                            }}
-                            className="inline-flex items-center gap-1 rounded-xl bg-[#c54650] px-3 py-1.5 text-[11px] font-extrabold text-white"
+                            onClick={() =>
+                              beginEditCapsule(selectedCapsule, decryptedText)
+                            }
+                            className="inline-flex items-center gap-1 rounded-xl px-2 py-1 text-[11px] font-bold opacity-80 hover:bg-black/5 hover:opacity-100"
                           >
-                            <Trash2 className="h-3 w-3" /> Xác nhận xóa
+                            <Pencil className="h-3 w-3" /> Sửa
                           </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteId(selectedCapsule.id)}
-                            className="inline-flex items-center gap-1 rounded-xl px-2 py-1 text-[11px] font-bold text-[#c54650] hover:bg-black/5"
-                          >
-                            <Trash2 className="h-3 w-3" /> Xóa
-                          </button>
-                        )}
-
-                        <span className="text-[10px] font-bold opacity-70">
-                          Mở lần thứ {selectedMeta.openedCount + 1}
-                        </span>
+                        </div>
 
                         <button
                           type="button"
-                          onClick={() => setSelectedCapsule(null)}
+                          onClick={() => setSelectedCapsuleId(null)}
                           className="rounded-xl bg-[#3d7c57] px-3.5 py-1.5 text-[11px] font-extrabold text-white shadow-2xs hover:bg-[#316647]"
                         >
                           🫶 Cuộn lại cất vào lọ
@@ -2114,9 +2524,8 @@ export function CapsuleJarModal({
                   )}
                 </div>
               ) : (
-                /* --- 7-DAY DOSE RHYTHM + TILT-TO-POUR & PRESCRIPTION DRAW --- */
                 <div className="space-y-3">
-                  {/* 7-Day Daily Capsule Rhythm Strip */}
+                  {/* 7-Day Rhythm Strip */}
                   <div
                     className={`rounded-2xl border p-3 ${
                       isNight
@@ -2169,7 +2578,7 @@ export function CapsuleJarModal({
                     </div>
                   </div>
 
-                  {/* Prescription Filter & Pour / Shake Buttons */}
+                  {/* Prescription Filter & Actions */}
                   <div
                     className={`rounded-2xl border p-3.5 ${
                       isNight
@@ -2247,20 +2656,20 @@ export function CapsuleJarModal({
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={triggerTiltPourOut}
-                        disabled={capsules.length === 0 || pourMode}
+                        onClick={triggerSmoothPourOut}
+                        disabled={filteredCapsules.length === 0 || pouringActive}
                         className={`inline-flex items-center justify-center gap-1.5 rounded-2xl border px-3 py-2 text-xs font-extrabold transition disabled:opacity-45 ${
                           isNight
                             ? 'border-[#6f523b] bg-[#261c15] text-[#f4e8d6] hover:bg-[#3a2b20]'
                             : 'border-[#cbb08c] bg-[#fbf5e9] text-[#382619] hover:bg-[#f0e3cd]'
                         }`}
                       >
-                        🫗 Dốc lọ đổ 1 viên
+                        🫗 Đổ 1 viên ra tay
                       </button>
                       <button
                         type="button"
                         onClick={handleDrawRandomCapsule}
-                        disabled={capsules.length === 0}
+                        disabled={filteredCapsules.length === 0}
                         className="inline-flex items-center justify-center gap-1.5 rounded-2xl bg-[#b57a29] px-3 py-2 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#99651f] disabled:opacity-45"
                       >
                         <Shuffle className="h-3.5 w-3.5" /> Lắc & Bóc 1 viên

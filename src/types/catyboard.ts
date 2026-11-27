@@ -13,7 +13,8 @@ export type PaperStyle =
   | 'blue-lined'
   | 'mint-card'
   | 'kraft-ticket'
-  | `capsule:${string}`;
+  | `capsule:${string}`
+  | `wax:${string}`;
 export type PolaroidFrameColor =
   | 'classic-white'
   | 'film-black'
