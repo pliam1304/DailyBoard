@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Lock, MessageCircleHeart, Save, Sparkles } from 'lucide-react';
+import { Check, Lock, MessageCircleHeart, Save } from 'lucide-react';
 import { getDailyPrompt } from '@/lib/prompts';
 import {
   getMemberHeart,
@@ -167,7 +167,7 @@ export function DailyPromptCard({
                   : 'bg-[#f4ead8] text-[#5e4634]'
               }`}
             >
-              <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#b57a29]" />
+              <Check className="h-3.5 w-3.5 shrink-0 text-[#3d7c57]" />
               <span>
                 Đã giữ câu trả lời của bạn! Chờ <strong>{otherNick}</strong> trả lời để cùng mở hộp nhé.
               </span>

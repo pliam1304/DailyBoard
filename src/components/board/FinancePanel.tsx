@@ -43,7 +43,7 @@ const CATEGORIES: { id: FinanceCategory; label: string; emoji: string }[] = [
   { id: 'shopping', label: 'Mua sắm', emoji: '🛍️' },
   { id: 'bills', label: 'Hóa đơn', emoji: '🧾' },
   { id: 'saving', label: 'Tiết kiệm', emoji: '🐷' },
-  { id: 'salary', label: 'Thu nhập', emoji: '✨' },
+  { id: 'salary', label: 'Thu nhập', emoji: '💵' },
   { id: 'other', label: 'Khác', emoji: '📦' },
 ];
 
@@ -397,7 +397,7 @@ export function FinancePanel({
         </h4>
         {dayEntries.length === 0 ? (
           <p className="py-4 text-center text-xs opacity-65">
-            Hôm nay chưa phát sinh ghi chép tài chính nào (một ngày thật tiết kiệm!).
+            Chưa có ghi chép tài chính trong ngày.
           </p>
         ) : (
           <div className="space-y-2">

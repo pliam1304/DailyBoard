@@ -193,7 +193,7 @@ export const MOOD_META: Record<
   chill: { label: 'Thư giãn', emoji: '😸', badgeBg: 'bg-[#3d7c57] text-white' },
   sleepy: { label: 'Buồn ngủ', emoji: '😪', badgeBg: 'bg-[#68579e] text-white' },
   rainy: { label: 'Suy tư', emoji: '🌧️', badgeBg: 'bg-[#3a75a8] text-white' },
-  proud: { label: 'Tự hào', emoji: '✨', badgeBg: 'bg-[#b36432] text-white' },
+  proud: { label: 'Tự hào', emoji: '🌟', badgeBg: 'bg-[#b36432] text-white' },
   love: { label: 'Ấm áp', emoji: '🥰', badgeBg: 'bg-[#b95567] text-white' },
 };
 

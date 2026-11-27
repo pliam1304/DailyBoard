@@ -13,7 +13,6 @@ import {
   RotateCw,
   Shuffle,
   Smartphone,
-  Sparkles,
   Trash2,
   Unlock,
   X,
@@ -160,20 +159,19 @@ function daysBetweenDateKeys(fromKey: string, toKey: string): number {
 }
 
 function getJarMilestone(count: number): {
-  badge: string;
   title: string;
   nextGoal: number;
 } {
   if (count >= 100) {
-    return { badge: '👑', title: 'Kho Báu Năm Tháng', nextGoal: 365 };
+    return { title: 'Kho báu năm tháng', nextGoal: 365 };
   }
   if (count >= 30) {
-    return { badge: '✨', title: 'Tiệm Thuốc Tâm Hồn', nextGoal: 100 };
+    return { title: 'Tiệm viên nang', nextGoal: 100 };
   }
   if (count >= 7) {
-    return { badge: '🌼', title: 'Hũ Nắng Dịu Dàng', nextGoal: 30 };
+    return { title: 'Hũ nắng ấm', nextGoal: 30 };
   }
-  return { badge: '🌱', title: 'Lọ Nhỏ Khởi Đầu', nextGoal: 7 };
+  return { title: 'Lọ nhỏ khởi đầu', nextGoal: 7 };
 }
 
 function closestPointsOnSegments(
@@ -1088,21 +1086,6 @@ export function CapsuleJarModal({
             : `rgba(255, 248, 220, ${alpha * 0.9})`;
         ctx.fill();
       }
-
-      ctx.fillStyle = isNight
-        ? 'rgba(244, 232, 214, 0.12)'
-        : 'rgba(92, 66, 44, 0.11)';
-      ctx.font = '700 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(
-        vessel === 'cat-jar'
-          ? '🐾 MOCHI REMEDY JAR 🐾'
-          : vessel === 'star-bottle'
-            ? '✦ STARLIGHT WISHES ✦'
-            : 'APOTHECARY • SOUL PILLS',
-        JAR_CENTER_X,
-        138
-      );
       ctx.restore();
 
       // Draw every 3D-shaded capsule
@@ -1630,7 +1613,7 @@ export function CapsuleJarModal({
         <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-extrabold">💊 Lọ Thuốc Tâm Hồn</h2>
+              <h2 className="text-base font-extrabold">Lọ Viên Nang</h2>
               <span className="rounded-full bg-[#b57a29] px-2.5 py-0.5 text-[11px] font-extrabold text-white">
                 {capsules.length} viên
               </span>
@@ -1641,13 +1624,11 @@ export function CapsuleJarModal({
                     : 'border-[#dfc69e] bg-[#fff8e8] text-[#7a4e18]'
                 }`}
               >
-                {milestone.badge} {milestone.title}
+                {milestone.title}
               </span>
             </div>
             <p className="mt-0.5 text-xs opacity-80">
-              {todayCapsulesCount > 0
-                ? `Hôm nay đã thả ${todayCapsulesCount} viên ✓ • Tháng này: ${monthCapsulesCount} viên`
-                : `Chưa thả viên nào hôm nay • Tháng này: ${monthCapsulesCount} viên`}
+              Hôm nay: {todayCapsulesCount} viên • Tháng này: {monthCapsulesCount} viên
             </p>
           </div>
 
@@ -1665,7 +1646,7 @@ export function CapsuleJarModal({
                     : 'bg-[#efe2cc] text-[#4a3425]'
               }`}
             >
-              🫙 Lọ thuốc
+              Lọ thủy tinh
             </button>
             <button
               type="button"
@@ -1681,7 +1662,7 @@ export function CapsuleJarModal({
                     : 'bg-[#efe2cc] text-[#4a3425]'
               }`}
             >
-              <Plus className="h-3.5 w-3.5" /> Bào chế
+              <Plus className="h-3.5 w-3.5" /> Tạo viên
             </button>
             <button
               type="button"
@@ -1699,7 +1680,7 @@ export function CapsuleJarModal({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Đóng lọ thuốc"
+              aria-label="Đóng lọ viên nang"
               className={`rounded-full p-2 ${
                 isNight
                   ? 'bg-[#3a2b20] text-[#f4e8d6] hover:bg-[#49372a]'
@@ -1749,19 +1730,15 @@ export function CapsuleJarModal({
                   />
                 </div>
                 <div className="text-center sm:text-left">
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-[#b57a29]/15 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#b57a29]">
-                    ✦ Mô hình 3D tương tác (di chuột / chạm để nghiêng)
+                  <div className="text-sm font-extrabold">
+                    {activeComposePalette.label}
                   </div>
-                  <div className="mt-1 text-sm font-extrabold">
-                    {activeComposePalette.label} •{' '}
+                  <div className="mt-0.5 text-xs opacity-80">
                     {
                       CAPSULE_FINISHES.find((f) => f.id === selectedFinish)
                         ?.shortLabel
-                    }
-                  </div>
-                  <div className="mt-0.5 text-xs opacity-80">
-                    {activeComposePalette.subtitle} • Kèm{' '}
-                    {activeComposeCharm.emoji} {activeComposeCharm.label}
+                    }{' '}
+                    • {activeComposeCharm.emoji} {activeComposeCharm.label}
                   </div>
                 </div>
               </div>
@@ -1802,9 +1779,7 @@ export function CapsuleJarModal({
                   : 'border-[#dfcba9] bg-white/85'
               }`}
             >
-              <div className="mb-2 font-extrabold">
-                1. Chọn chất liệu & màu vỏ nhộng 3D (10 phiên bản):
-              </div>
+              <div className="mb-2 font-extrabold">Màu vỏ</div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {CAPSULE_PALETTES.map((pal) => {
                   const selected = selectedColor === pal.id;
@@ -1813,7 +1788,7 @@ export function CapsuleJarModal({
                       key={pal.id}
                       type="button"
                       onClick={() => setSelectedColor(pal.id)}
-                      className={`flex flex-col items-center gap-1 rounded-2xl border p-2 text-center transition ${
+                      className={`flex flex-col items-center gap-1.5 rounded-2xl border p-2 text-center transition ${
                         selected
                           ? 'border-[#b57a29] bg-[#fff6e0] text-[#382619] ring-2 ring-[#b57a29]/45 -translate-y-0.5 shadow-xs'
                           : isNight
@@ -1828,9 +1803,6 @@ export function CapsuleJarModal({
                       />
                       <div className="w-full truncate text-[11px] font-extrabold">
                         {pal.label}
-                      </div>
-                      <div className="w-full truncate text-[9px] opacity-70">
-                        {pal.subtitle}
                       </div>
                     </button>
                   );
@@ -1847,7 +1819,7 @@ export function CapsuleJarModal({
                     : 'border-[#dfcba9] bg-white/85'
                 }`}
               >
-                <div className="mb-1.5 font-extrabold">2. Họa tiết & Đai vỏ:</div>
+                <div className="mb-1.5 font-extrabold">Kiểu vỏ</div>
                 <div className="flex flex-wrap gap-1">
                   {CAPSULE_FINISHES.map((fn) => (
                     <button
@@ -1875,7 +1847,7 @@ export function CapsuleJarModal({
                     : 'border-[#dfcba9] bg-white/85'
                 }`}
               >
-                <div className="mb-1.5 font-extrabold">3. Kỷ vật bỏ kèm:</div>
+                <div className="mb-1.5 font-extrabold">Đính kèm</div>
                 <div className="flex flex-wrap gap-1">
                   {CAPSULE_CHARMS.map((ch) => (
                     <button
@@ -1904,7 +1876,7 @@ export function CapsuleJarModal({
                     : 'border-[#dfcba9] bg-white/85'
                 }`}
               >
-                <div className="mb-1.5 font-extrabold">4. Giấy cuộn thư:</div>
+                <div className="mb-1.5 font-extrabold">Giấy thư</div>
                 <div className="flex flex-wrap gap-1">
                   {CAPSULE_SCROLL_SKINS.map((sk) => (
                     <button
@@ -1928,9 +1900,7 @@ export function CapsuleJarModal({
 
             {/* Step 3: Emotional Prescription */}
             <div>
-              <div className="mb-1.5 text-xs font-extrabold">
-                5. Đơn thuốc cảm xúc (dành cho lúc mở xem):
-              </div>
+              <div className="mb-1.5 text-xs font-extrabold">Nhãn mở lại</div>
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
                 {CAPSULE_PRESCRIPTIONS.map((pr) => {
                   const active = selectedPresc === pr.id;
@@ -1939,7 +1909,7 @@ export function CapsuleJarModal({
                       key={pr.id}
                       type="button"
                       onClick={() => setSelectedPresc(pr.id)}
-                      className={`rounded-2xl border px-2.5 py-2 text-left text-xs transition ${
+                      className={`rounded-2xl border px-2.5 py-2 text-center text-xs font-extrabold transition ${
                         active
                           ? 'border-transparent bg-[#3a75a8] text-white shadow-xs'
                           : isNight
@@ -1947,12 +1917,7 @@ export function CapsuleJarModal({
                             : 'border-[#dfcba9] bg-white/80 text-[#382619] hover:bg-[#f4e8d3]'
                       }`}
                     >
-                      <div className="font-extrabold">
-                        {pr.emoji} {pr.shortTag}
-                      </div>
-                      <div className="mt-0.5 line-clamp-1 text-[10px] opacity-80">
-                        {pr.hint}
-                      </div>
+                      {pr.emoji} {pr.shortTag}
                     </button>
                   );
                 })}
@@ -2119,10 +2084,10 @@ export function CapsuleJarModal({
               >
                 <Check className="h-4 w-4" />
                 {sealingCinema !== 'none'
-                  ? 'Đang đóng khóa 3D...'
+                  ? 'Đang đóng nắp...'
                   : editingCapsuleId
-                    ? 'Lưu cập nhật viên thuốc'
-                    : 'Đóng viên nhộng & Thả vào lọ'}
+                    ? 'Lưu thay đổi'
+                    : 'Thả vào lọ'}
               </button>
             </div>
           </form>
@@ -2252,7 +2217,7 @@ export function CapsuleJarModal({
                     type="button"
                     onClick={() => handleChangeVessel(v.id)}
                     title={v.subtitle}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-extrabold transition ${
+                    className={`rounded-full px-3 py-1 text-[11px] font-extrabold transition ${
                       jarVessel === v.id
                         ? 'bg-[#4a3425] text-[#ffd978] shadow-xs'
                         : isNight
@@ -2260,7 +2225,7 @@ export function CapsuleJarModal({
                           : 'bg-[#efe4d1] text-[#4a3425] hover:bg-[#e5d5bc]'
                     }`}
                   >
-                    {v.emoji} {v.label}
+                    {v.label}
                   </button>
                 ))}
               </div>
@@ -2285,12 +2250,8 @@ export function CapsuleJarModal({
                 />
                 {capsules.length === 0 && (
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-12 pt-14 text-center">
-                    <span className="text-2xl">🫙</span>
-                    <p className="mt-1 text-xs font-extrabold">
-                      Lọ thủy tinh đang chờ viên đầu tiên
-                    </p>
-                    <p className="mt-0.5 text-[11px] opacity-75">
-                      Bấm “Bào chế” để tự phối màu và thả viên nhộng hôm nay vào lọ!
+                    <p className="text-xs font-bold opacity-70">
+                      Chưa có viên nang nào trong lọ
                     </p>
                   </div>
                 )}
@@ -2303,7 +2264,7 @@ export function CapsuleJarModal({
                     onClick={() => void requestMotionPermission()}
                     className="inline-flex items-center gap-1 rounded-full bg-[#3a75a8] px-3 py-1 font-extrabold text-white shadow-2xs"
                   >
-                    <Smartphone className="h-3.5 w-3.5" /> Bật nghiêng điện thoại
+                    <Smartphone className="h-3.5 w-3.5" /> Bật cảm biến nghiêng
                   </button>
                 )}
                 <button
@@ -2312,7 +2273,7 @@ export function CapsuleJarModal({
                     ambientEngine.playCorkPop();
                     setCorkStateImmediate(!corkOpen);
                   }}
-                  className={`rounded-full px-2.5 py-0.5 font-bold transition ${
+                  className={`rounded-full px-3 py-1 font-bold transition ${
                     corkOpen
                       ? 'bg-[#3d7c57] text-white'
                       : isNight
@@ -2320,9 +2281,7 @@ export function CapsuleJarModal({
                         : 'bg-[#efe4d1] text-[#4a3425]'
                   }`}
                 >
-                  {corkOpen
-                    ? '🔓 Nắp đang mở (dốc máy hoặc chạm viên thuốc)'
-                    : '🔒 Chạm nút bần để mở nắp'}
+                  {corkOpen ? 'Đóng nắp' : 'Mở nắp'}
                 </button>
               </div>
             </div>
@@ -2361,10 +2320,6 @@ export function CapsuleJarModal({
                     style={{ touchAction: 'none' }}
                     className="relative my-2 flex flex-col items-center justify-center py-2 cursor-pointer select-none"
                   >
-                    {(unwrapStage === 'popping' ||
-                      unwrapStage === 'unfurled') && (
-                      <Sparkles className="pointer-events-none absolute top-0 h-5 w-5 animate-ping text-[#e0a938]" />
-                    )}
                     <CapsuleGraphic
                       palette={selectedMeta.palette}
                       finishId={selectedMeta.finishId}
@@ -2435,9 +2390,8 @@ export function CapsuleJarModal({
                     </form>
                   ) : unwrapStage === 'sealed' ? (
                     <div className="space-y-2.5 text-center">
-                      <div className="text-xs font-bold opacity-85">
-                        Bỏ lọ ngày {formatDisplayDateVi(selectedCapsule.entryDate)}{' '}
-                        • Vuốt ngang viên thuốc hoặc bấm nút dưới
+                      <div className="text-xs font-bold opacity-80">
+                        {formatDisplayDateVi(selectedCapsule.entryDate)}
                       </div>
                       <button
                         type="button"
@@ -2446,7 +2400,7 @@ export function CapsuleJarModal({
                         }
                         className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#b57a29] py-2.5 text-xs font-extrabold text-white shadow-md transition hover:bg-[#99651f]"
                       >
-                        <Sparkles className="h-4 w-4" /> Xoay & Bóc vỏ kén
+                        Mở viên nang
                       </button>
                     </div>
                   ) : (
@@ -2456,7 +2410,7 @@ export function CapsuleJarModal({
                     >
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-1 border-b border-current/15 pb-2 text-[11px]">
                         <span className="font-bold opacity-80">
-                          📅 {formatDisplayDateVi(selectedCapsule.entryDate)}
+                          {formatDisplayDateVi(selectedCapsule.entryDate)}
                         </span>
                         <div className="flex items-center gap-1.5">
                           <span className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-bold">
@@ -2517,7 +2471,7 @@ export function CapsuleJarModal({
                           onClick={() => setSelectedCapsuleId(null)}
                           className="rounded-xl bg-[#3d7c57] px-3.5 py-1.5 text-[11px] font-extrabold text-white shadow-2xs hover:bg-[#316647]"
                         >
-                          🫶 Cuộn lại cất vào lọ
+                          Cất lại vào lọ
                         </button>
                       </div>
                     </div>
@@ -2534,9 +2488,9 @@ export function CapsuleJarModal({
                     }`}
                   >
                     <div className="mb-2 flex items-center justify-between text-[11px] font-extrabold">
-                      <span>🗓️ Nhịp bỏ thuốc 7 ngày gần nhất</span>
+                      <span>7 ngày gần nhất</span>
                       <span className="opacity-75">
-                        Mốc kế: {capsules.length}/{milestone.nextGoal} viên
+                        {capsules.length}/{milestone.nextGoal} viên
                       </span>
                     </div>
                     <div className="grid grid-cols-7 gap-1 text-center">
@@ -2587,7 +2541,7 @@ export function CapsuleJarModal({
                     }`}
                   >
                     <div className="mb-2 text-xs font-extrabold">
-                      Chọn đơn thuốc bạn cần lúc này:
+                      Lọc theo nhãn
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <button
@@ -2664,7 +2618,7 @@ export function CapsuleJarModal({
                             : 'border-[#cbb08c] bg-[#fbf5e9] text-[#382619] hover:bg-[#f0e3cd]'
                         }`}
                       >
-                        🫗 Đổ 1 viên ra tay
+                        Đổ 1 viên
                       </button>
                       <button
                         type="button"
@@ -2672,7 +2626,7 @@ export function CapsuleJarModal({
                         disabled={filteredCapsules.length === 0}
                         className="inline-flex items-center justify-center gap-1.5 rounded-2xl bg-[#b57a29] px-3 py-2 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#99651f] disabled:opacity-45"
                       >
-                        <Shuffle className="h-3.5 w-3.5" /> Lắc & Bóc 1 viên
+                        <Shuffle className="h-3.5 w-3.5" /> Chọn ngẫu nhiên
                       </button>
                     </div>
                   </div>

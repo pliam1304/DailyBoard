@@ -82,7 +82,7 @@ export function SearchCommandModal({
         <div className="mt-3 max-h-80 space-y-1.5 overflow-y-auto pr-1">
           {!query.trim() ? (
             <p className="py-8 text-center text-xs text-[#6b5340]">
-              Gõ từ khóa (ví dụ: <em>matcha, biển, uống nước, tâm thư...</em>) để nhảy thẳng tới ngày kỷ niệm đó.
+              Nhập từ khóa để tìm theo nội dung hoặc ngày.
             </p>
           ) : hits.length === 0 ? (
             <p className="py-8 text-center text-xs text-[#6b5340]">

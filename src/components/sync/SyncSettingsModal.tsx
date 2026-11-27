@@ -8,8 +8,8 @@ import {
   LogOut,
   RefreshCw,
   ShieldCheck,
+  SlidersHorizontal,
   Smartphone,
-  Sparkles,
   Trash2,
   Upload,
   Wrench,
@@ -205,9 +205,7 @@ export function SyncSettingsModal({
       >
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h2 className="text-base font-extrabold">
-              ⚙️ Cài đặt
-            </h2>
+            <h2 className="text-base font-extrabold">Cài đặt</h2>
             {isDevUser && (
               <span className="inline-flex items-center gap-1 rounded-full bg-[#4a3425] px-2.5 py-0.5 text-[10px] font-extrabold text-[#ffd978]">
                 <Wrench className="h-3 w-3" /> DEV ADMIN
@@ -278,7 +276,7 @@ export function SyncSettingsModal({
           {/* Personalization */}
           <section className="rounded-2xl border border-[#dfcba9] bg-white/85 p-4">
             <h3 className="mb-3 flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide">
-              <Sparkles className="h-3.5 w-3.5" /> Tùy chỉnh giao diện
+              <SlidersHorizontal className="h-3.5 w-3.5" /> Tùy chỉnh giao diện
             </h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="text-xs">
@@ -392,10 +390,9 @@ export function SyncSettingsModal({
               </span>
             </div>
 
-            <div className="rounded-xl bg-[#f7efe0] p-2.5 text-[11px] leading-relaxed text-[#4b3525]">
-              • Mọi tấm ảnh tải lên đều được gỡ sạch tọa độ GPS (EXIF) ngay trên thiết bị.<br />
-              • Thư & viên thuốc riêng tư có mã PIN được mã hóa chuẩn AES-256 trước khi lưu.
-            </div>
+            <p className="text-[11px] leading-relaxed text-[#4b3525]">
+              Ảnh tải lên tự động xóa vị trí GPS. Nội dung khóa PIN được mã hóa AES-256.
+            </p>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap gap-2">

@@ -214,11 +214,11 @@ export interface CapsuleFinishMeta {
 }
 
 export const CAPSULE_FINISHES: CapsuleFinishMeta[] = [
-  { id: 'gold-collar', label: 'Đai nhẫn kim loại 3D', shortLabel: '💍 Đai kim loại' },
-  { id: 'glossy', label: 'Tráng gương bóng 3D', shortLabel: '✨ Tráng gương' },
-  { id: 'star-dust', label: 'Phủ bụi sao lấp lánh', shortLabel: '🌟 Bụi sao' },
-  { id: 'candy-stripe', label: 'Xoắn sọc kẹo ngọt', shortLabel: '🍬 Sọc kẹo' },
-  { id: 'heart-stamp', label: 'Dập nổi trái tim', shortLabel: '💗 Tim nổi 3D' },
+  { id: 'gold-collar', label: 'Đai kim loại', shortLabel: 'Đai kim loại' },
+  { id: 'glossy', label: 'Tráng gương', shortLabel: 'Tráng gương' },
+  { id: 'star-dust', label: 'Ánh sao', shortLabel: 'Ánh sao' },
+  { id: 'candy-stripe', label: 'Vân sọc', shortLabel: 'Vân sọc' },
+  { id: 'heart-stamp', label: 'Tim nổi', shortLabel: 'Tim nổi' },
 ];
 
 export interface CapsuleCharmMeta {
@@ -290,21 +290,21 @@ export interface JarVesselMeta {
 export const JAR_VESSELS: JarVesselMeta[] = [
   {
     id: 'apothecary',
-    emoji: '🫙',
-    label: 'Lọ Thuốc Cổ Điển',
-    subtitle: 'Nút bần gỗ sồi & nhãn tiệm thuốc xưa',
+    emoji: '',
+    label: 'Lọ cổ điển',
+    subtitle: 'Nút bần gỗ',
   },
   {
     id: 'star-bottle',
-    emoji: '✨',
-    label: 'Bình Sao Pha Lê',
-    subtitle: 'Bầu tròn lấp lánh đom đóm ước nguyện',
+    emoji: '',
+    label: 'Bình bầu tròn',
+    subtitle: 'Cổ thắt nơ',
   },
   {
     id: 'cat-jar',
-    emoji: '🐱',
-    label: 'Hũ Mèo Mochi',
-    subtitle: 'Nắp gỗ tai mèo tròn bầu đáng yêu',
+    emoji: '',
+    label: 'Hũ tai mèo',
+    subtitle: 'Nắp gỗ Mochi',
   },
 ];
 

@@ -161,14 +161,14 @@ export function CozyDeskModal({
       <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
           <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 font-extrabold tracking-wide">
-            🐾 {boardTitle} • Góc tập trung
+            {boardTitle}
           </span>
-          <span className="rounded-full bg-[#b57a29]/90 px-2.5 py-1 text-[11px] font-extrabold text-white">
-            🔥 {streakCount} ngày
+          <span className="inline-flex items-center gap-1 rounded-full bg-[#b57a29]/90 px-2.5 py-1 text-[11px] font-extrabold text-white">
+            <Flame className="h-3 w-3" /> {streakCount} ngày
           </span>
           {wakeLocked && (
             <span className="hidden rounded-full bg-[#3d7c57]/80 px-2.5 py-1 text-[10px] font-bold text-white sm:inline-block">
-              Giữ sáng màn hình ✓
+              Giữ sáng màn hình
             </span>
           )}
         </div>
@@ -226,7 +226,7 @@ export function CozyDeskModal({
 
         {/* Companion + Desk Treat Status */}
         <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold text-[#e6d5be]">
-          <span>💤 {catName} đang nằm nghe nhạc cạnh bạn</span>
+          <span>{catName} đang ở cạnh bạn</span>
           {deskTreat && (
             <span className="rounded-full border border-[#ffd98e]/40 bg-[#423122] px-3 py-1 font-bold text-[#ffe6ad]">
               {deskTreat.emoji} {deskTreat.label}
@@ -238,7 +238,7 @@ export function CozyDeskModal({
         {/* Compact Focus Pomodoro Bar */}
         <div className="flex flex-wrap items-center justify-center gap-2 rounded-3xl border border-white/15 bg-white/8 px-4 py-2.5 backdrop-blur-md">
           <span className="pixel-led px-2 text-lg font-extrabold text-[#ffd978]">
-            🍅 {focusMm}:{focusSs}
+            {focusMm}:{focusSs}
           </span>
           <button
             type="button"
@@ -300,13 +300,13 @@ export function CozyDeskModal({
           />
           <div className="min-w-0">
             <div className="truncate font-extrabold">
-              {activeTrack ? activeTrack.title : 'Chưa bật bài nhạc nền'}
+              {activeTrack ? activeTrack.title : 'Chưa phát nhạc'}
             </div>
-            <div className="truncate text-[11px] text-[#cbb79f]">
-              {activeTrack
-                ? activeTrack.artistOrChannel
-                : 'Có thể bật tiếng mưa hoặc lửa củi bên phải'}
-            </div>
+            {activeTrack && (
+              <div className="truncate text-[11px] text-[#cbb79f]">
+                {activeTrack.artistOrChannel}
+              </div>
+            )}
           </div>
         </div>
 

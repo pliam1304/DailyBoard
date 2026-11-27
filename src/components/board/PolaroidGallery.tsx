@@ -46,7 +46,7 @@ const LiveCameraModal = dynamic(
   { ssr: false }
 );
 
-const QUICK_REACTIONS = ['❤️', '🐾', '🥰', '😂', '✨'];
+const QUICK_REACTIONS = ['❤️', '🐾', '🥰', '😂', '🌸'];
 
 interface PolaroidGalleryProps {
   entryDate: string;
@@ -296,18 +296,7 @@ export function PolaroidGallery({
         }`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-extrabold">
-              📸 Ảnh trong ngày
-            </h3>
-            <p
-              className={`text-xs ${
-                isNight ? 'text-[#cbb7a1]' : 'text-[#6b5340]'
-              }`}
-            >
-              Chụp ảnh mới hoặc tải ảnh từ máy
-            </p>
-          </div>
+          <h3 className="text-sm font-extrabold">Ảnh trong ngày</h3>
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Hidden fallback native capture input */}
@@ -411,9 +400,6 @@ export function PolaroidGallery({
         >
           <PressedFlower className="mb-2 opacity-85" />
           <p className="text-sm font-bold">Chưa có ảnh nào trong ngày</p>
-          <p className="mt-1 text-xs opacity-85">
-            Bấm “Chụp ảnh” hoặc “Tải ảnh lên” để ghim ảnh vào bảng.
-          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 pt-2 sm:grid-cols-2">
@@ -479,7 +465,7 @@ export function PolaroidGallery({
                             e.target.value
                           )
                         }
-                        placeholder="Viết dòng chữ tay bí mật sau tấm ảnh này (tự lưu khi chạm ra ngoài)..."
+                        placeholder="Ghi chú mặt sau ảnh..."
                         className="font-handwriting-soft mt-2.5 w-full resize-none rounded-xl border border-[#e4d3b8] bg-[#fffcf6] p-2.5 text-sm leading-relaxed text-[#382619] outline-none placeholder:text-[#9c8369]"
                       />
                     </div>
@@ -487,7 +473,7 @@ export function PolaroidGallery({
                     {/* 10-Second Talking Polaroid Audio Strip */}
                     <div className="mt-3 rounded-xl border border-[#e3d1b4] bg-[#f7efe0] p-2.5 text-xs">
                       <div className="mb-1.5 flex items-center justify-between text-[11px] font-extrabold text-[#5c4430]">
-                        <span>🎙️ Giọng nói kỷ niệm sau ảnh (10s)</span>
+                        <span>Ghi âm mặt sau (10s)</span>
                         {backVoice && (
                           <button
                             type="button"
@@ -517,7 +503,7 @@ export function PolaroidGallery({
                           onClick={stopBackVoiceRecord}
                           className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#c54650] py-1.5 text-xs font-extrabold text-white animate-pulse"
                         >
-                          <Square className="h-3 w-3 fill-current" /> Đang thu... bấm để dừng
+                          <Square className="h-3 w-3 fill-current" /> Đang thu...
                         </button>
                       ) : (
                         <button
@@ -525,7 +511,7 @@ export function PolaroidGallery({
                           onClick={() => void startBackVoiceRecord(photo)}
                           className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#3d7c57] py-1.5 text-xs font-extrabold text-white hover:bg-[#316647]"
                         >
-                          <Mic className="h-3.5 w-3.5" /> Bấm thu 10 giây giọng nói
+                          <Mic className="h-3.5 w-3.5" /> Thu 10 giây
                         </button>
                       )}
                     </div>

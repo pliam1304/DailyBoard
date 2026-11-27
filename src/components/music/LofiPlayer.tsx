@@ -377,15 +377,15 @@ export function LofiPlayer({
             <h2 className="text-sm font-extrabold tracking-tight">
               Phòng Nhạc
             </h2>
-            <p
-              className={`text-[11px] ${
-                isNight ? 'text-[#cbb7a1]' : 'text-[#6b5340]'
-              }`}
-            >
-              {isSharedDuo(sharing)
-                ? 'Đổi bài sẽ tự đồng bộ qua máy người kia'
-                : 'Chọn đài có sẵn, tìm tên bài hát hoặc dán link'}
-            </p>
+            {isSharedDuo(sharing) && (
+              <p
+                className={`text-[11px] ${
+                  isNight ? 'text-[#cbb7a1]' : 'text-[#6b5340]'
+                }`}
+              >
+                Đồng bộ bài phát cùng nhau
+              </p>
+            )}
           </div>
         </div>
 
@@ -425,9 +425,7 @@ export function LofiPlayer({
       <div className="mb-3 rounded-2xl border-2 border-[#4e3b2b] bg-[#221913] px-3 py-2 text-[#cbf5d5] shadow-inner">
         <div className="flex items-center justify-between gap-2">
           <div className="pixel-led truncate text-xs font-bold">
-            {activeTrack
-              ? `▶ ${activeTrack.title}`
-              : '♪ Chạm 1 đài bên dưới hoặc tìm bài hát để phát'}
+            {activeTrack ? `▶ ${activeTrack.title}` : '♪ Chưa chọn bài phát'}
           </div>
           {activeTrack && (
             <a
@@ -649,7 +647,7 @@ export function LofiPlayer({
               : 'opacity-75 hover:opacity-100'
           }`}
         >
-          📻 Kệ đĩa có sẵn
+          Kệ nhạc gợi ý
         </button>
         <button
           type="button"
@@ -660,7 +658,7 @@ export function LofiPlayer({
               : 'opacity-75 hover:opacity-100'
           }`}
         >
-          ❤️ List của tôi ({tracks.length})
+          Danh sách ({tracks.length})
         </button>
       </div>
 
@@ -863,7 +861,7 @@ export function LofiPlayer({
           <div className="max-h-48 space-y-1.5 overflow-y-auto pr-0.5">
             {filteredUserTracks.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#cfa97e] p-4 text-center text-xs opacity-80">
-                Chưa có bài nào trong mục này. Gõ tên bài hát ở ô tìm kiếm phía trên hoặc chọn từ Kệ đĩa có sẵn để lưu nhé!
+                Chưa có bài hát nào trong mục này.
               </div>
             ) : (
               filteredUserTracks.map((trk) => {
@@ -950,7 +948,7 @@ export function LofiPlayer({
       >
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold">
           <Volume2 className="h-3.5 w-3.5" />
-          <span>Tiếng nền thư giãn (bật kèm nhạc)</span>
+          <span>Âm thanh nền</span>
         </div>
         <div className="grid grid-cols-3 gap-2 text-[11px]">
           <label className="flex flex-col gap-1">

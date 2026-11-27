@@ -102,7 +102,7 @@ export function VoiceMemoCard({
           onAddMemo({
             id: createUuid(),
             entryDate,
-            title: title.trim() || 'Lời nhắn giọng nói nhỏ 🎙️',
+            title: title.trim() || 'Ghi âm giọng nói',
             dataUrl,
             durationSec: Math.max(1, elapsedRef.current),
             authorRole: sharing.activeRole,
@@ -142,18 +142,7 @@ export function VoiceMemoCard({
           <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-[#b95567] text-white">
             <Mic className="h-4 w-4" />
           </div>
-          <div>
-            <h3 className="text-xs font-extrabold">
-              🎙️ Băng Cassette Giọng Nói (tối đa 30s)
-            </h3>
-            <p
-              className={`text-[11px] ${
-                isNight ? 'text-[#cbb7a1]' : 'text-[#6b5340]'
-              }`}
-            >
-              Thu nhanh một lời nhắn hay câu chúc ngủ ngon dính vào ngày này
-            </p>
-          </div>
+          <h3 className="text-xs font-extrabold">Ghi âm giọng nói (30s)</h3>
         </div>
       </div>
 

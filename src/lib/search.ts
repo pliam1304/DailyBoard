@@ -131,7 +131,7 @@ export interface CatDecorItem {
 export const CAT_DECOR_CATALOG: CatDecorItem[] = [
   { id: 'steaming-mug', label: 'Ly cà phê ấm', emoji: '☕', fishCost: 0 },
   { id: 'cactus', label: 'Chậu xương rồng', emoji: '🌵', fishCost: 5 },
-  { id: 'fairy-lights', label: 'Đèn dây vàng', emoji: '✨', fishCost: 10 },
+  { id: 'fairy-lights', label: 'Đèn dây vàng', emoji: '💡', fishCost: 10 },
   { id: 'books', label: 'Chồng sách lofi', emoji: '📚', fishCost: 15 },
   { id: 'cozy-beanie', label: 'Mũ len cho mèo', emoji: '🧶', fishCost: 20 },
 ];

@@ -48,9 +48,9 @@ export function QuickCheckinCard({
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const h = new Date().getHours();
-    if (h >= 5 && h < 12) setGreeting('☀️ Buổi sáng hôm nay của bạn thế nào?');
-    else if (h >= 12 && h < 18) setGreeting('🌤️ Buổi chiều của bạn đang ổn chứ?');
-    else setGreeting('🌙 Buổi tối ấm áp — hôm nay của bạn ra sao?');
+    if (h >= 5 && h < 12) setGreeting('Buổi sáng của bạn thế nào?');
+    else if (h >= 12 && h < 18) setGreeting('Buổi chiều của bạn thế nào?');
+    else setGreeting('Hôm nay của bạn thế nào?');
   }, []);
 
   const submitFridge = (e: React.FormEvent) => {
@@ -124,7 +124,7 @@ export function QuickCheckinCard({
               type="text"
               value={fridgeDraft}
               onChange={(e) => setFridgeDraft(e.target.value)}
-              placeholder="📌 Ghim nhanh 1 dòng lên đầu bảng hôm nay..."
+              placeholder="Ghim nhanh 1 dòng lên đầu bảng..."
               className={`flex-1 rounded-xl border px-3 py-1.5 text-xs outline-none ${
                 isNight
                   ? 'border-[#5e4635] bg-[#3a2c22] text-[#f4e8d6] placeholder:text-[#baa58f]'

@@ -243,7 +243,7 @@ export function AuthScreen({
         <div className="mb-5 flex flex-col items-center text-center">
           <PuffyWord text={(boardTitle || DEFAULT_BOARD_TITLE).toUpperCase().slice(0, 10)} />
           <p className="mt-2 text-xs font-bold text-[#5c422c]">
-            Nhật ký & ảnh mỗi ngày 🐾
+            Nhật ký & ảnh mỗi ngày
           </p>
           {inviteCode && (
             <div className="mt-2 rounded-full bg-[#3d7c57] px-3 py-1 text-[11px] font-extrabold text-white shadow-2xs">
@@ -449,7 +449,7 @@ export function AuthScreen({
           {mode === 'verify_otp' && (
             <form onSubmit={handleVerifySubmit} className="space-y-3">
               <div className="rounded-2xl bg-[#eef6fc] p-3 text-xs text-[#1e4b70]">
-                <div className="font-extrabold">📩 Xác nhận email</div>
+                <div className="font-extrabold">Xác nhận email</div>
                 <p className="mt-1 text-[11px] leading-relaxed">
                   {infoMsg ||
                     `Mã xác nhận đã được gửi tới ${email} (kiểm tra thêm mục Spam nếu chưa thấy).`}
@@ -530,7 +530,7 @@ export function AuthScreen({
           {mode === 'forgot_password' && (
             <form onSubmit={handleForgotSubmit} className="space-y-3">
               <div className="text-xs font-extrabold text-[#382619]">
-                🔑 Đặt lại mật khẩu
+                Đặt lại mật khẩu
               </div>
 
               <label className="block text-xs">

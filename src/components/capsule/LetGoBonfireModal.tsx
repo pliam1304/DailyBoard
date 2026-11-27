@@ -189,10 +189,7 @@ export function LetGoBonfireModal({
               <Flame className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-sm font-extrabold">🔥 Lò Sưởi Buông Bỏ</h2>
-              <p className="text-[11px] opacity-80">
-                Trút bỏ chuyện nặng lòng rồi đốt thành tro — không lưu lại dấu vết
-              </p>
+              <h2 className="text-sm font-extrabold">Góc giải tỏa</h2>
             </div>
           </div>
           <button
@@ -209,16 +206,14 @@ export function LetGoBonfireModal({
           <div className="space-y-3">
             <div className="flex items-center gap-1.5 rounded-xl bg-[#eef7f0] px-3 py-2 text-[11px] font-bold text-[#255935]">
               <ShieldCheck className="h-4 w-4 shrink-0" />
-              <span>
-                An toàn tuyệt đối: Chữ viết ở đây chỉ nằm tạm trên màn hình và xóa sạch vĩnh viễn ngay khi đốt.
-              </span>
+              <span>Không lưu lại nội dung sau khi đốt.</span>
             </div>
 
             <textarea
               rows={5}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Viết hết những bực dọc, mệt mỏi hay điều bạn không muốn giữ trong lòng tối nay..."
+              placeholder="Viết ra điều đang làm bạn bận lòng..."
               className="paper-kraft-ticket w-full resize-none rounded-2xl border border-[#cfb48e] p-3.5 text-xs leading-relaxed text-[#382619] outline-none placeholder:text-[#7c6248]"
             />
 
@@ -228,7 +223,7 @@ export function LetGoBonfireModal({
                 onClick={onClose}
                 className="rounded-2xl bg-black/10 px-4 py-2 text-xs font-bold"
               >
-                Để sau
+                Đóng
               </button>
               <button
                 type="button"
@@ -236,7 +231,7 @@ export function LetGoBonfireModal({
                 onClick={handleBurn}
                 className="inline-flex items-center gap-1.5 rounded-2xl bg-[#c95b3c] px-5 py-2.5 text-xs font-extrabold text-white shadow-md transition hover:bg-[#ad4b2f] disabled:opacity-45"
               >
-                <Flame className="h-4 w-4" /> Thả vào lửa ấm
+                <Flame className="h-4 w-4" /> Đốt bỏ
               </button>
             </div>
           </div>

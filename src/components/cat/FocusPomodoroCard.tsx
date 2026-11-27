@@ -89,18 +89,16 @@ export function FocusPomodoroCard({
             <Timer className="h-4 w-4" />
           </div>
           <div>
-            <h3 className="text-xs font-extrabold">
-              Pomodoro Tập Trung cùng {catName}
-            </h3>
-            <p
-              className={`text-[10px] ${
-                isNight ? 'text-[#cbb7a1]' : 'text-[#6b5340]'
-              }`}
-            >
-              {running
-                ? `${catName} đang ngồi học ngoan cạnh bạn...`
-                : 'Chọn thời gian và bật nhạc lofi để tập trung'}
-            </p>
+            <h3 className="text-xs font-extrabold">Đồng hồ tập trung</h3>
+            {running && (
+              <p
+                className={`text-[10px] ${
+                  isNight ? 'text-[#cbb7a1]' : 'text-[#6b5340]'
+                }`}
+              >
+                Đang tập trung cùng {catName}...
+              </p>
+            )}
           </div>
         </div>
 

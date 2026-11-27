@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Fish, Heart, MailOpen, Sparkles } from 'lucide-react';
+import { Fish, Heart, MailOpen, Music } from 'lucide-react';
 import { ambientEngine } from '@/lib/audio';
 import { toLocalDateKey } from '@/lib/date';
 import { getDailyCatFortune } from '@/lib/prompts';
@@ -474,7 +474,7 @@ export function CatCompanion({
             )}
             {isPlayingMusic && (
               <span className="inline-flex items-center gap-1 rounded-full bg-[#3a75a8] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-xs">
-                <Sparkles className="h-3 w-3" /> Đang chill
+                <Music className="h-3 w-3" /> Đang nghe nhạc
               </span>
             )}
             <div className="rounded-xl border border-[#dfcba9] bg-[#fffaf0] px-2.5 py-1.5 text-right text-xs text-[#382619] shadow-sm">
@@ -526,8 +526,8 @@ export function CatCompanion({
               <MailOpen className="h-3.5 w-3.5 shrink-0 text-[#b57a29]" />
               <span>
                 {!fortuneOpenedToday
-                  ? `✉️ Bóc mẩu giấy hôm nay từ ${catName}`
-                  : `📜 Xem lại lời nhắn hôm nay của ${catName}`}
+                  ? `Lời nhắn hôm nay từ ${catName}`
+                  : `Xem lại lời nhắn từ ${catName}`}
               </span>
             </span>
             {!fortuneOpenedToday && (
@@ -546,8 +546,8 @@ export function CatCompanion({
             }`}
           >
             <div className="flex items-center justify-between text-[10px] font-extrabold uppercase text-[#b57a29]">
-              <span>🐾 {catName} nhắn bạn hôm nay</span>
-              <span className="opacity-65">Chạm để gấp lại</span>
+              <span>{catName} nhắn hôm nay</span>
+              <span className="opacity-65">Đóng</span>
             </div>
             <p className="mt-1 font-bold leading-relaxed">
               “{dailyFortune.quote}”
@@ -647,7 +647,7 @@ export function CatCompanion({
               }`}
             >
               <div className="mb-1.5 text-[11px] font-bold opacity-85">
-                🐟 Tích cá từ chụp ảnh, ghi chú & xong việc để mở đồ trang trí cửa sổ:
+                Đồ trang trí cửa sổ
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {CAT_DECOR_CATALOG.map((item) => {

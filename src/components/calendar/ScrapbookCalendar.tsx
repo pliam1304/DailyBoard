@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Lock, Sparkles } from 'lucide-react';
+import { CalendarRange, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import {
   formatMonthTitleVi,
   formatVnd,
@@ -64,15 +64,8 @@ export function ScrapbookCalendar({
       }`}
     >
       {/* Calendar Header */}
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-extrabold">
-            📅 Cuốn Lịch Ảnh Scrapbook
-          </h2>
-          <p className="text-xs opacity-75">
-            Chạm vào từng ngày để xem lại ảnh Polaroid, tâm thư & chi tiêu
-          </p>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-extrabold">Lịch kỷ niệm</h2>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -80,7 +73,7 @@ export function ScrapbookCalendar({
             onClick={() => setWrappedOpen(true)}
             className="inline-flex items-center gap-1 rounded-xl bg-[#b57a29] px-3 py-1.5 text-xs font-extrabold text-white shadow-xs hover:bg-[#99651f]"
           >
-            <Sparkles className="h-3.5 w-3.5" /> Tổng kết tháng
+            <CalendarRange className="h-3.5 w-3.5" /> Tổng kết tháng
           </button>
           <button
             type="button"

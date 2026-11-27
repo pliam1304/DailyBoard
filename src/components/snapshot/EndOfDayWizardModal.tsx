@@ -4,9 +4,9 @@ import React, { useState } from 'react';
 import {
   Camera,
   ChevronRight,
+  Download,
   Flame,
   MoonStar,
-  Sparkles,
   Wallet,
   X,
 } from 'lucide-react';
@@ -95,10 +95,8 @@ export function EndOfDayWizardModal({
               <MoonStar className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-sm font-extrabold">Chốt Ngày Trong 15 Giây</h2>
-              <p className="text-[11px] text-[#6b5340]">
-                Bước {step}/3 • Nghi thức nhỏ cùng {catName}
-              </p>
+              <h2 className="text-sm font-extrabold">Chốt ngày</h2>
+              <p className="text-[11px] text-[#6b5340]">Bước {step}/3</p>
             </div>
           </div>
 
@@ -262,10 +260,10 @@ export function EndOfDayWizardModal({
             </div>
             <div>
               <h3 className="text-base font-extrabold">
-                Tuyệt vời! Chuỗi {Math.max(1, streak)} ngày cùng {catName} 🐾
+                Chuỗi {Math.max(1, streak)} ngày cùng {catName}
               </h3>
               <p className="mt-1 text-xs text-[#6b5340]">
-                Mọi kỷ niệm hôm nay đã được xếp gọn trên cuốn lịch. Bạn có muốn xuất ngay 1 tấm ảnh Báo Cáo Hằng Ngày để lưu lại không?
+                Đã lưu lại ngày hôm nay.
               </p>
             </div>
 
@@ -275,7 +273,7 @@ export function EndOfDayWizardModal({
                 onClick={onClose}
                 className="rounded-xl bg-[#ede0cc] px-4 py-2 text-xs font-bold text-[#382619]"
               >
-                Để sau nhé
+                Đóng
               </button>
               <button
                 type="button"
@@ -285,8 +283,8 @@ export function EndOfDayWizardModal({
                 }}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[#4a3425] px-4 py-2 text-xs font-extrabold text-[#fdf7ed] shadow-sm"
               >
-                <Sparkles className="h-3.5 w-3.5 text-[#ffd978]" />
-                Xuất ảnh báo cáo PNG
+                <Download className="h-3.5 w-3.5 text-[#ffd978]" />
+                Xuất thẻ ngày
               </button>
             </div>
           </div>

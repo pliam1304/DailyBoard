@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
-import { Download, Sparkles, X } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { formatMonthTitleVi, formatVnd } from '@/lib/date';
 import { computeMonthlyWrapped } from '@/lib/prompts';
 import { getMemberNickname, isSharedDuo } from '@/lib/sharing';
@@ -89,15 +89,9 @@ export function MonthlyWrappedModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="flex items-center gap-1.5 text-base font-extrabold">
-              <Sparkles className="h-4 w-4 text-[#b57a29]" />
-              Gói Kỷ Niệm {formatMonthTitleVi(year, monthIndex)}
-            </h2>
-            <p className="text-xs text-[#6b5340]">
-              Tổng hợp ảnh Polaroid, chi tiêu theo cảm xúc và chiến tích cả tháng
-            </p>
-          </div>
+          <h2 className="text-base font-extrabold">
+            Tổng kết {formatMonthTitleVi(year, monthIndex)}
+          </h2>
 
           <div className="flex items-center gap-2">
             <button
@@ -143,7 +137,7 @@ export function MonthlyWrappedModal({
               </div>
 
               <div className="rounded-2xl bg-[#fbf5e9] px-3 py-2 text-right text-xs font-bold shadow-xs">
-                <div>🗓️ {stats.activeDays} ngày có kỷ niệm</div>
+                <div>{stats.activeDays} ngày ghi chép</div>
                 <div className="text-[11px] text-[#6b5340]">
                   {stats.topMood
                     ? `Mood chủ đạo: ${MOOD_META[stats.topMood.mood].emoji} ${MOOD_META[stats.topMood.mood].label}`
@@ -183,7 +177,7 @@ export function MonthlyWrappedModal({
                 className="-top-2.5 absolute right-5 rotate-3"
               />
               <div className="font-extrabold text-[#4a321f]">
-                💡 Góc nhìn Tài chính & Cảm xúc tháng này:
+                Chi tiêu & Cảm xúc tháng này
               </div>
               <p className="mt-1 leading-relaxed text-[#4f3a29]">
                 {stats.topExpenseCategory ? (
@@ -212,7 +206,7 @@ export function MonthlyWrappedModal({
             {/* Polaroid Collage Grid */}
             <div>
               <div className="mb-2 text-[11px] font-extrabold uppercase tracking-wide text-[#4e341f]">
-                📸 Album Polaroid của tháng ({stats.photos.length})
+                Album Polaroid ({stats.photos.length})
               </div>
               {stats.photos.length === 0 ? (
                 <div className="rounded-2xl bg-[#fbf5e9]/85 p-6 text-center text-xs text-[#6b5340]">

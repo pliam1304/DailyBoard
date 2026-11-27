@@ -86,9 +86,7 @@ export function RemindersPanel({
             : 'border-[#c89d6d] bg-[#faf3e3]/95 text-[#423022]'
         }`}
       >
-        <h3 className="mb-2.5 text-sm font-extrabold">
-          ✅ Nhắc Nhở Hôm Nay & Hộp Chiến Tích
-        </h3>
+        <h3 className="mb-2.5 text-sm font-extrabold">Nhắc việc hôm nay</h3>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             type="text"
@@ -149,8 +147,8 @@ export function RemindersPanel({
             }`}
           >
             <option value="none">Một lần</option>
-            <option value="daily">🔁 Lặp hằng ngày</option>
-            <option value="weekly">🔁 Lặp hằng tuần</option>
+            <option value="daily">Lặp hằng ngày</option>
+            <option value="weekly">Lặp hằng tuần</option>
           </select>
         </div>
       </form>
@@ -243,9 +241,8 @@ export function RemindersPanel({
           <div className="mb-2.5 flex items-center justify-between">
             <span className="inline-flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide">
               <Award className="h-4 w-4 text-[#5ca26e]" />
-              Lời nhắc đã làm ({done.length})
+              Đã hoàn thành ({done.length})
             </span>
-            <span className="text-[11px] opacity-75">🐾 Sẽ in vào báo cáo</span>
           </div>
           {done.length === 0 ? (
             <p className="py-4 text-center text-xs opacity-65">

@@ -313,14 +313,7 @@ export function LiveCameraModal({
             <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[#3a75a8] text-white shadow-xs">
               <Camera className="h-5 w-5" />
             </div>
-            <div>
-              <h2 className="text-sm font-extrabold">
-                Chụp ảnh Polaroid
-              </h2>
-              <p className="text-[11px] text-[#6b5340]">
-                Chọn màu phim hoặc chuyển sang camera gốc của máy
-              </p>
-            </div>
+            <h2 className="text-sm font-extrabold">Chụp ảnh Polaroid</h2>
           </div>
 
           <button

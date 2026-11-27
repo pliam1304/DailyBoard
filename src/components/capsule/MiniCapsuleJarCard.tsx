@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Flame, Plus, Sparkles } from 'lucide-react';
+import { Flame, Plus } from 'lucide-react';
 import {
   extractCapsulesFromNotes,
   parseCapsuleStyle,
@@ -177,7 +177,7 @@ export function MiniCapsuleJarCard({
 
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-sm font-extrabold">💊 Lọ Thuốc Tâm Hồn</span>
+            <span className="text-sm font-extrabold">Lọ Viên Nang</span>
             <span className="rounded-full bg-[#b57a29] px-2 py-0.5 text-[10px] font-extrabold text-white">
               {capsules.length} viên
             </span>
@@ -200,9 +200,7 @@ export function MiniCapsuleJarCard({
               isNight ? 'text-[#cbb7a1]' : 'text-[#6b5340]'
             }`}
           >
-            {droppedToday
-              ? 'Đã thả thuốc hôm nay ✓ • Nghiêng dốc lọ hoặc vuốt bóc vỏ kén'
-              : 'Bào chế 1 viên nhộng lưu giữ cảm xúc hôm nay'}
+            {droppedToday ? 'Đã cất 1 viên hôm nay' : 'Lưu lại một lời nhắn nhỏ'}
           </p>
         </div>
       </button>
@@ -212,14 +210,14 @@ export function MiniCapsuleJarCard({
           <button
             type="button"
             onClick={onOpenBonfire}
-            title="Lò sưởi buông bỏ muộn phiền"
+            title="Góc giải tỏa"
             className={`inline-flex items-center gap-1 rounded-2xl border px-2.5 py-2 text-xs font-extrabold transition ${
               isNight
                 ? 'border-[#7a4b38] bg-[#38231b] text-[#f7c8b5] hover:bg-[#472d23]'
                 : 'border-[#e0bca8] bg-[#fff2ea] text-[#9e3f28] hover:bg-[#fae4d7]'
             }`}
           >
-            <Flame className="h-3.5 w-3.5" /> Buông bỏ
+            <Flame className="h-3.5 w-3.5" /> Giải tỏa
           </button>
         )}
         <button
@@ -227,14 +225,14 @@ export function MiniCapsuleJarCard({
           onClick={() => onOpenJar('compose')}
           className="inline-flex items-center gap-1 rounded-2xl bg-[#3d7c57] px-3 py-2 text-xs font-extrabold text-white shadow-xs transition hover:bg-[#316647]"
         >
-          <Plus className="h-3.5 w-3.5" /> Bào chế
+          <Plus className="h-3.5 w-3.5" /> Tạo viên
         </button>
         <button
           type="button"
           onClick={() => onOpenJar('jar')}
-          className="inline-flex items-center gap-1 rounded-2xl bg-[#b57a29] px-3 py-2 text-xs font-extrabold text-white shadow-xs transition hover:bg-[#99651f]"
+          className="inline-flex items-center rounded-2xl bg-[#b57a29] px-3.5 py-2 text-xs font-extrabold text-white shadow-xs transition hover:bg-[#99651f]"
         >
-          <Sparkles className="h-3.5 w-3.5" /> Mở lọ
+          Mở lọ
         </button>
       </div>
     </div>

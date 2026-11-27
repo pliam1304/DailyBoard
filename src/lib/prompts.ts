@@ -98,7 +98,7 @@ export const DAILY_CAT_FORTUNES_VI: CatFortuneSlip[] = [
   },
   {
     quote: 'Bạn đã cố gắng nhiều hơn bạn tự nghĩ về mình rồi đó.',
-    microHint: 'Viết 1 câu tự khen bản thân vào mẩu giấy nhớ hôm nay ✨',
+    microHint: 'Viết 1 câu tự khen bản thân vào mẩu giấy nhớ hôm nay.',
   },
   {
     quote: 'Một tách trà ấm và một bản piano đủ làm dịu cả buổi chiều bận rộn.',

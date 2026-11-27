@@ -9,6 +9,7 @@ import {
   Clock,
   Cloud,
   Disc3,
+  Download,
   EyeOff,
   Flame,
   Heart,
@@ -23,7 +24,6 @@ import {
   Settings,
   Shield,
   SkipForward,
-  Sparkles,
   Square,
   Sun,
   Unlock,
@@ -1757,7 +1757,7 @@ export function CatyBoardApp() {
                 onClick={() => setSnapshotOpen(true)}
                 className="inline-flex items-center gap-1 rounded-2xl bg-[#4a3425] px-3 py-2 text-xs font-extrabold text-[#fdf7ed] shadow-sm transition hover:opacity-90"
               >
-                <Sparkles className="h-3.5 w-3.5 text-[#f7dc88]" />
+                <Download className="h-3.5 w-3.5 text-[#f7dc88]" />
                 <span>Xuất thẻ ngày</span>
               </button>
 
@@ -1983,7 +1983,7 @@ export function CatyBoardApp() {
                           : 'border-[#d6be9c] bg-[#fbf5e9] text-[#382619]'
                       }`}
                     >
-                      <div className="text-[10px] font-bold opacity-75">📸 Ảnh</div>
+                      <div className="text-[10px] font-bold opacity-75">Ảnh hôm nay</div>
                       <div className="text-sm font-extrabold">
                         {dayPhotos.length} tấm
                       </div>
@@ -2000,7 +2000,7 @@ export function CatyBoardApp() {
                           : 'border-[#b7d9bf] bg-[#eef7f0] text-[#214f2d]'
                       }`}
                     >
-                      <div className="text-[10px] font-bold opacity-80">✅ Việc làm</div>
+                      <div className="text-[10px] font-bold opacity-80">Việc hoàn thành</div>
                       <div className="text-sm font-extrabold">
                         {completedRemindersCount}/{dayReminders.length}
                       </div>
@@ -2017,7 +2017,7 @@ export function CatyBoardApp() {
                           : 'border-[#e8bec2] bg-[#fdf1f2] text-[#732d34]'
                       }`}
                     >
-                      <div className="text-[10px] font-bold opacity-80">💸 Chi hôm nay</div>
+                      <div className="text-[10px] font-bold opacity-80">Chi hôm nay</div>
                       <div className="truncate text-sm font-extrabold">
                         {formatVnd(dayExpense)}
                       </div>
@@ -2158,12 +2158,12 @@ export function CatyBoardApp() {
                         { id: 'all', label: 'Tất cả' },
                         {
                           id: 'reminders',
-                          label: `✅ Nhắc việc (${dayReminders.length})`,
+                          label: `Nhắc việc (${dayReminders.length})`,
                         },
-                        { id: 'finance', label: '💸 Chi tiêu & Hũ tiết kiệm' },
+                        { id: 'finance', label: 'Chi tiêu & Tiết kiệm' },
                         {
                           id: 'notes',
-                          label: `📝 Note & Thư (${dayNotes.length})`,
+                          label: `Ghi chú & Thư (${dayNotes.length})`,
                         },
                       ] as { id: PlannerSection; label: string }[]
                     ).map((sec) => (
@@ -2494,10 +2494,10 @@ export function CatyBoardApp() {
             </div>
             <div>
               <h2 className="text-base font-extrabold">
-                Đang che màn hình riêng tư
+                Màn hình đang che
               </h2>
               <p className="mt-1 text-xs leading-relaxed text-[#6b5340]">
-                Ảnh kỷ niệm, tâm thư & chi tiêu đang được giấu kín. Nhạc Lofi của bạn vẫn đang phát bình thường.
+                Nhạc vẫn tiếp tục phát.
               </p>
             </div>
 
@@ -2548,7 +2548,7 @@ export function CatyBoardApp() {
             className="w-full max-w-sm space-y-3 rounded-3xl border-2 border-[#c89d6d] bg-[#faf3e3] p-5 text-[#382619] shadow-2xl"
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-extrabold">🔑 Đặt mật khẩu mới</h2>
+              <h2 className="text-sm font-extrabold">Đặt mật khẩu mới</h2>
               <button
                 type="button"
                 onClick={() => setPasswordRecoveryOpen(false)}

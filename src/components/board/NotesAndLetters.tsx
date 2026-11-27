@@ -410,7 +410,7 @@ export function NotesAndLetters({
 
             {kind === 'letter' && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="opacity-80">🕯️ Đóng dấu sáp:</span>
+                <span className="opacity-80">Đóng dấu sáp:</span>
                 <button
                   type="button"
                   onClick={() => setWaxSeal('none')}
@@ -514,12 +514,12 @@ export function NotesAndLetters({
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#755b46]">
                       {capsuleInfo?.isCapsule
-                        ? `💊 Viên thuốc • ${capsuleInfo.prescription.shortTag}`
+                        ? `Viên nang • ${capsuleInfo.prescription.shortTag}`
                         : note.kind === 'letter'
-                          ? '💌 Tâm thư'
+                          ? 'Tâm thư'
                           : note.kind === 'time_capsule'
-                            ? `⏳ Mở ngày ${note.unlockDate ? formatShortDate(note.unlockDate) : '...'}`
-                            : '📝 Sticky Note'}
+                            ? `Mở ngày ${note.unlockDate ? formatShortDate(note.unlockDate) : '...'}`
+                            : 'Ghi chú'}
                     </span>
                     <AuthorBadge sharing={sharing} role={note.authorRole} />
                     {capsuleInfo?.isCapsule && onOpenCapsuleJar && (
@@ -609,7 +609,7 @@ export function NotesAndLetters({
                     {waxParsed.seal.emoji}
                   </span>
                   <span className="mt-2 text-[11px] font-extrabold text-[#5c4430]">
-                    Chạm bẻ dấu sáp để mở tâm thư
+                    Mở dấu sáp
                   </span>
                 </button>
               ) : isPinLocked ? (

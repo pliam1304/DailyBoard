@@ -194,7 +194,7 @@ export function SharedBoardModal({
               className="rounded-2xl border border-[#dfcba9] bg-white/85 p-4 space-y-3"
             >
               <div className="text-xs font-extrabold uppercase tracking-wide text-[#6b513b]">
-                💌 Gửi lời mời
+                Gửi lời mời
               </div>
 
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -259,8 +259,8 @@ export function SharedBoardModal({
                   <span className="flex items-center gap-1.5 font-bold">
                     <span className="h-2.5 w-2.5 rounded-full bg-[#39a659]" />
                     {onlineCount >= 2
-                      ? 'Cả 2 đang cùng ở trên bảng lúc này!'
-                      : 'Đồng bộ Realtime đang bật — mọi ảnh & note sẽ tự cập nhật.'}
+                      ? 'Cả 2 đang cùng trực tuyến'
+                      : 'Đã kết nối đồng bộ bảng chung'}
                   </span>
                   <Heart className="h-4 w-4 text-[#e07a88]" />
                 </div>
@@ -269,7 +269,7 @@ export function SharedBoardModal({
               <div className="rounded-2xl border border-[#dfcba9] bg-white/85 p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-extrabold uppercase tracking-wide text-[#6b513b]">
-                    🏷️ Đổi biệt danh với nhau
+                    Biệt danh & Mèo
                   </span>
                   {savedNotice && (
                     <span className="text-[11px] font-bold text-[#3b8d52]">
@@ -376,10 +376,10 @@ export function SharedBoardModal({
               {sharing.pendingInvite && sharing.pendingInvite.status === 'pending' && (
                 <div className="rounded-2xl border border-[#bddbf3] bg-[#eef7fe] p-3.5 text-xs text-[#1d456b] space-y-2">
                   <div className="font-extrabold">
-                    📩 Lời mời gửi tới: {sharing.pendingInvite.inviteeEmail}
+                    Lời mời gửi tới: {sharing.pendingInvite.inviteeEmail}
                   </div>
                   <p className="text-[11px] opacity-85">
-                    Gửi link bên dưới cho người ấy — khi đăng nhập đúng email này, cả 2 sẽ tự động kết nối vào cùng bảng!
+                    Gửi link này cho người được mời để tham gia bảng chung.
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <code className="flex-1 truncate rounded-xl bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#1d456b]">

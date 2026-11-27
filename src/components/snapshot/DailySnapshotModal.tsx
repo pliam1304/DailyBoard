@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
-import { Download, Eye, EyeOff, ReceiptText, Share2, Sparkles, X } from 'lucide-react';
+import { Download, Eye, EyeOff, LayoutGrid, ReceiptText, Share2, X } from 'lucide-react';
 import { formatDisplayDateVi, formatVnd } from '@/lib/date';
 import {
   getMemberNickname,
@@ -36,7 +36,7 @@ const STICKER_CHOICES: { id: BoardStickerId; label: string; icon: string }[] = [
   { id: 'paw', label: 'Dấu chân mèo', icon: '🐾' },
   { id: 'sky-heart', label: 'Tim xanh', icon: '💙' },
   { id: 'sage-heart', label: 'Tim mint', icon: '💚' },
-  { id: 'sparkle', label: 'Lấp lánh', icon: '✨' },
+  { id: 'sparkle', label: 'Ngôi sao', icon: '⭐' },
 ];
 
 interface DailySnapshotModalProps {
@@ -185,14 +185,7 @@ export function DailySnapshotModal({
       >
         {/* Top Modal Controls */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-base font-extrabold">
-              📸 Chụp Ảnh Báo Cáo Hằng Ngày
-            </h2>
-            <p className="text-xs text-[#755b46]">
-              Tổng hợp ảnh Polaroid, tài chính, tâm thư & lời nhắc đã làm thành 1 bức ảnh kỷ niệm
-            </p>
-          </div>
+          <h2 className="text-base font-extrabold">Thẻ kỷ niệm ngày</h2>
 
           <button
             type="button"
@@ -215,7 +208,7 @@ export function DailySnapshotModal({
                   : 'bg-[#f0e4cf] text-[#4c3625]'
               }`}
             >
-              <Sparkles className="h-3.5 w-3.5" /> Bảng Ghim Polaroid
+              <LayoutGrid className="h-3.5 w-3.5" /> Bảng Polaroid
             </button>
             <button
               type="button"
@@ -226,7 +219,7 @@ export function DailySnapshotModal({
                   : 'bg-[#f0e4cf] text-[#4c3625]'
               }`}
             >
-              <ReceiptText className="h-3.5 w-3.5" /> Hóa Đơn Quán Mèo
+              <ReceiptText className="h-3.5 w-3.5" /> Hóa đơn
             </button>
           </div>
 
@@ -240,7 +233,7 @@ export function DailySnapshotModal({
                   : 'bg-[#f4ebda] text-[#5e4632] hover:bg-[#eadbc2]'
               }`}
             >
-              {hideAmounts ? '🙈 Đang che số tiền' : '💰 Hiện số tiền'}
+              {hideAmounts ? 'Ẩn số tiền' : 'Hiện số tiền'}
             </button>
 
             <button
@@ -253,7 +246,7 @@ export function DailySnapshotModal({
               ) : (
                 <EyeOff className="h-3.5 w-3.5" />
               )}
-              {includePrivate ? 'Đang hiện tâm thư ẩn' : 'Đang ẩn tâm thư riêng tư'}
+              {includePrivate ? 'Hiện ghi chú riêng' : 'Ẩn ghi chú riêng'}
             </button>
 
             <button
@@ -335,7 +328,7 @@ export function DailySnapshotModal({
               )}
               {activeStickers.includes('sparkle') && (
                 <span className="pointer-events-none absolute right-24 top-4 text-lg">
-                  ✨
+                  ⭐
                 </span>
               )}
 
