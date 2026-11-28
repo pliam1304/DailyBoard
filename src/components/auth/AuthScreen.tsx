@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowRight,
   KeyRound,
@@ -9,10 +9,13 @@ import {
   RefreshCw,
   UserCheck,
   UserPlus,
+  Users,
+  X,
 } from 'lucide-react';
 import {
   DEFAULT_BOARD_TITLE,
   DEFAULT_OWNER_NICKNAME,
+  DEFAULT_PARTNER_NICKNAME,
 } from '@/lib/sharing';
 import {
   checkRateLimit,
@@ -37,6 +40,14 @@ export interface SignupPayload {
 
 interface AuthScreenProps {
   inviteCode?: string;
+  invitePreview?: {
+    boardTitle: string;
+    inviterNickname: string;
+    inviteeNickname: string;
+    isOpenLink: boolean;
+    inviteeEmailHint: string;
+  } | null;
+  onDismissInvite?: () => void;
   onLogin: (email: string, password: string, remember?: boolean) => Promise<void>;
   onSignupRequestOtp: (
     payload: SignupPayload
@@ -52,6 +63,8 @@ interface AuthScreenProps {
 
 export function AuthScreen({
   inviteCode,
+  invitePreview,
+  onDismissInvite,
   onLogin,
   onSignupRequestOtp,
   onVerifyOtp,
@@ -61,11 +74,28 @@ export function AuthScreen({
   const [mode, setMode] = useState<
     'login' | 'signup' | 'verify_otp' | 'forgot_password'
   >('login');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(invitePreview?.inviteeEmailHint || '');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [boardTitle, setBoardTitle] = useState(DEFAULT_BOARD_TITLE);
-  const [nickname, setNickname] = useState(DEFAULT_OWNER_NICKNAME);
+  const [nickname, setNickname] = useState(
+    inviteCode
+      ? invitePreview?.inviteeNickname || DEFAULT_PARTNER_NICKNAME
+      : DEFAULT_OWNER_NICKNAME
+  );
+
+  useEffect(() => {
+    if (invitePreview?.inviteeNickname) {
+      setNickname(invitePreview.inviteeNickname);
+    } else if (inviteCode) {
+      setNickname((prev) =>
+        prev === DEFAULT_OWNER_NICKNAME ? DEFAULT_PARTNER_NICKNAME : prev
+      );
+    }
+    if (invitePreview?.inviteeEmailHint) {
+      setEmail((prev) => prev || invitePreview.inviteeEmailHint);
+    }
+  }, [inviteCode, invitePreview]);
   const [otpCode, setOtpCode] = useState('');
   const [demoOtpHint, setDemoOtpHint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -241,13 +271,45 @@ export function AuthScreen({
 
         {/* Header */}
         <div className="mb-5 flex flex-col items-center text-center">
-          <PuffyWord text={(boardTitle || DEFAULT_BOARD_TITLE).toUpperCase().slice(0, 10)} />
+          <PuffyWord
+            text={(
+              invitePreview?.boardTitle ||
+              boardTitle ||
+              DEFAULT_BOARD_TITLE
+            )
+              .toUpperCase()
+              .slice(0, 10)}
+          />
           <p className="mt-2 text-xs font-bold text-[#5c422c]">
             Nhật ký & ảnh mỗi ngày
           </p>
           {inviteCode && (
-            <div className="mt-2 rounded-full bg-[#3d7c57] px-3 py-1 text-[11px] font-extrabold text-white shadow-2xs">
-              💌 Lời mời dùng bảng chung ({inviteCode})
+            <div className="mt-3 w-full rounded-2xl border-2 border-[#7eb7e6] bg-[#eef7fe] p-3 text-left text-xs text-[#194063] shadow-xs">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-1.5 font-extrabold">
+                  <Users className="h-4 w-4 shrink-0 text-[#2e6da4]" />
+                  <span>
+                    {invitePreview
+                      ? `${invitePreview.inviterNickname} mời bạn vào bảng "${invitePreview.boardTitle}"`
+                      : `Lời mời tham gia bảng chung (${inviteCode})`}
+                  </span>
+                </div>
+                {onDismissInvite && (
+                  <button
+                    type="button"
+                    onClick={onDismissInvite}
+                    title="Bỏ qua lời mời này"
+                    className="rounded-full p-0.5 opacity-60 hover:opacity-100"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-[#2c5478]">
+                {invitePreview?.inviteeEmailHint
+                  ? `Đăng nhập hoặc tạo tài khoản bằng email ${invitePreview.inviteeEmailHint} để vào thẳng bảng chung.`
+                  : 'Đăng nhập hoặc tạo tài khoản mới bên dưới để vào thẳng bảng chung của 2 người.'}
+              </p>
             </div>
           )}
         </div>
@@ -359,7 +421,11 @@ export function AuthScreen({
                 className="flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#3a75a8] py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#2f6390] disabled:opacity-60"
               >
                 <UserCheck className="h-4 w-4" />
-                {busy ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                {busy
+                  ? 'Đang đăng nhập...'
+                  : inviteCode
+                    ? 'Đăng nhập & Vào bảng chung'
+                    : 'Đăng nhập'}
               </button>
             </form>
           )}
@@ -396,28 +462,41 @@ export function AuthScreen({
                 </div>
               </label>
 
-              <div className="grid grid-cols-2 gap-2">
+              {inviteCode ? (
                 <label className="block text-xs">
-                  <span className="font-bold">Tên bảng</span>
-                  <input
-                    type="text"
-                    value={boardTitle}
-                    onChange={(e) => setBoardTitle(e.target.value)}
-                    placeholder="Name"
-                    className="mt-1 w-full rounded-xl border border-[#d5bc99] bg-white px-3 py-2 text-xs font-bold outline-none"
-                  />
-                </label>
-                <label className="block text-xs">
-                  <span className="font-bold">Tên gọi</span>
+                  <span className="font-bold">Tên gọi của bạn trên bảng chung</span>
                   <input
                     type="text"
                     value={nickname}
                     onChange={(e) => setNickname(e.target.value)}
-                    placeholder="Him / Her"
+                    placeholder="Her"
                     className="mt-1 w-full rounded-xl border border-[#d5bc99] bg-white px-3 py-2 text-xs font-bold outline-none"
                   />
                 </label>
-              </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-xs">
+                    <span className="font-bold">Tên bảng</span>
+                    <input
+                      type="text"
+                      value={boardTitle}
+                      onChange={(e) => setBoardTitle(e.target.value)}
+                      placeholder="Name"
+                      className="mt-1 w-full rounded-xl border border-[#d5bc99] bg-white px-3 py-2 text-xs font-bold outline-none"
+                    />
+                  </label>
+                  <label className="block text-xs">
+                    <span className="font-bold">Tên gọi</span>
+                    <input
+                      type="text"
+                      value={nickname}
+                      onChange={(e) => setNickname(e.target.value)}
+                      placeholder="Him / Her"
+                      className="mt-1 w-full rounded-xl border border-[#d5bc99] bg-white px-3 py-2 text-xs font-bold outline-none"
+                    />
+                  </label>
+                </div>
+              )}
 
               <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-[#5b432f]">
                 <input
@@ -441,7 +520,11 @@ export function AuthScreen({
                 className="flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#3d7c57] py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#316647] disabled:opacity-60"
               >
                 <UserPlus className="h-4 w-4" />
-                {busy ? 'Đang tạo...' : 'Tạo tài khoản'}
+                {busy
+                  ? 'Đang tạo...'
+                  : inviteCode
+                    ? 'Tạo tài khoản & Vào bảng chung'
+                    : 'Tạo tài khoản'}
               </button>
             </form>
           )}

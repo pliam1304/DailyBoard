@@ -10,6 +10,14 @@ import type {
 export const DEFAULT_BOARD_TITLE = 'Name';
 export const DEFAULT_OWNER_NICKNAME = 'Him';
 export const DEFAULT_PARTNER_NICKNAME = 'Her';
+export const OPEN_INVITE_EMAIL = 'open@invite.local';
+
+const PENDING_INVITE_CODE_KEY = 'nameboard_pending_invite_code_v1';
+const PENDING_INVITE_AUTOJOIN_KEY = 'nameboard_pending_invite_autojoin_v1';
+
+export function isOpenInviteEmail(email?: string | null): boolean {
+  return !email || email.trim().toLowerCase() === OPEN_INVITE_EMAIL;
+}
 
 export const HEART_BADGE_META: Record<
   HeartColor,
@@ -89,10 +97,90 @@ export function getMemberHeart(
 export function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = 'DIARY-';
-  for (let i = 0; i < 6; i += 1) {
+  for (let i = 0; i < 8; i += 1) {
     out += chars[Math.floor(Math.random() * chars.length)];
   }
   return out;
+}
+
+/**
+ * Extracts a clean uppercase invite code from either a pasted full URL
+ * (`https://.../?invite=DIARY-AB12CD34`) or a raw code (`diary-ab12cd34`).
+ */
+export function extractInviteCodeFromInput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  try {
+    if (trimmed.includes('invite=')) {
+      const url = new URL(
+        trimmed.startsWith('http')
+          ? trimmed
+          : `https://placeholder.local/${trimmed.replace(/^\/+/, '')}`
+      );
+      const fromParam = url.searchParams.get('invite');
+      if (fromParam) {
+        return fromParam.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().slice(0, 32);
+      }
+    }
+  } catch {
+    // Fall back to direct regex extraction
+  }
+  const paramMatch = trimmed.match(/[?&]invite=([a-zA-Z0-9_-]{4,32})/i);
+  if (paramMatch?.[1]) {
+    return paramMatch[1].toUpperCase();
+  }
+  return trimmed.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().slice(0, 32);
+}
+
+export function savePendingInviteCode(
+  code: string | null,
+  options?: { autoJoin?: boolean }
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const cleaned = code ? extractInviteCodeFromInput(code) : '';
+    if (!cleaned) {
+      window.localStorage.removeItem(PENDING_INVITE_CODE_KEY);
+      window.sessionStorage.removeItem(PENDING_INVITE_CODE_KEY);
+      window.localStorage.removeItem(PENDING_INVITE_AUTOJOIN_KEY);
+      window.sessionStorage.removeItem(PENDING_INVITE_AUTOJOIN_KEY);
+      return;
+    }
+    window.localStorage.setItem(PENDING_INVITE_CODE_KEY, cleaned);
+    window.sessionStorage.setItem(PENDING_INVITE_CODE_KEY, cleaned);
+    if (options?.autoJoin !== undefined) {
+      const flag = options.autoJoin ? '1' : '0';
+      window.localStorage.setItem(PENDING_INVITE_AUTOJOIN_KEY, flag);
+      window.sessionStorage.setItem(PENDING_INVITE_AUTOJOIN_KEY, flag);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function loadPendingInviteCode(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return (
+      window.sessionStorage.getItem(PENDING_INVITE_CODE_KEY) ||
+      window.localStorage.getItem(PENDING_INVITE_CODE_KEY) ||
+      ''
+    );
+  } catch {
+    return '';
+  }
+}
+
+export function shouldAutoJoinPendingInvite(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return (
+      window.sessionStorage.getItem(PENDING_INVITE_AUTOJOIN_KEY) === '1' ||
+      window.localStorage.getItem(PENDING_INVITE_AUTOJOIN_KEY) === '1'
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function createUuid(): string {
@@ -118,7 +206,7 @@ export function buildInviteUrl(origin: string, inviteCode: string): string {
 
 export function inviteSecondPerson(
   sharing: BoardSharingState,
-  inviteeEmail: string,
+  inviteeEmail = '',
   options?: {
     ownerNickname?: string;
     partnerNickname?: string;
@@ -127,7 +215,7 @@ export function inviteSecondPerson(
     activateDuoImmediately?: boolean;
   }
 ): BoardSharingState {
-  const normalizedEmail = inviteeEmail.trim().toLowerCase();
+  const normalizedEmail = inviteeEmail.trim().toLowerCase() || OPEN_INVITE_EMAIL;
   const now = new Date().toISOString();
   const existingOwner = getMemberByRole(sharing, 'owner') ?? {
     role: 'owner' as const,

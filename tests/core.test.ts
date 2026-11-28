@@ -15,11 +15,14 @@ import {
   createDefaultSharing,
   createUuid,
   DEFAULT_BOARD_TITLE,
+  extractInviteCodeFromInput,
   getMemberNickname,
   inviteSecondPerson,
+  isOpenInviteEmail,
   isSharedDuo,
   isUuid,
   normalizeStoreData,
+  OPEN_INVITE_EMAIL,
   renameMember,
   revertToSoloBoard,
 } from '../src/lib/sharing.ts';
@@ -745,4 +748,37 @@ test('Group 1 upgrades: VND live formatting, safe PIN rotation/removal, and slim
     rehydrated.voiceMemos?.[0].dataUrl,
     'data:audio/webm;base64,FULL_VOICE_MEMO'
   );
+});
+
+test('Open invite links, URL/code extraction, and cloud pending invite state work cleanly', () => {
+  // 1. Parse full HTTPS URLs, query fragments, and lowercase raw invite codes
+  assert.equal(
+    extractInviteCodeFromInput('https://dailyboard-ten.vercel.app/?invite=diary-ab12cd34'),
+    'DIARY-AB12CD34'
+  );
+  assert.equal(
+    extractInviteCodeFromInput('  /?invite=DIARY-XY98ZW12&utm_source=zalo  '),
+    'DIARY-XY98ZW12'
+  );
+  assert.equal(extractInviteCodeFromInput('  diary-k7m9p2q4 '), 'DIARY-K7M9P2Q4');
+  assert.equal(extractInviteCodeFromInput(''), '');
+
+  // 2. Open link invite (blank email -> open@invite.local) with activateDuoImmediately: false
+  // keeps isSharedDuo === false while preserving pendingInvite so the share link box never disappears!
+  const solo = createDefaultSharing('owner@gmail.com');
+  const waitingForPartner = inviteSecondPerson(solo, '', {
+    ownerNickname: 'Anh',
+    partnerNickname: 'Em',
+    boardId: '11111111-2222-4333-8444-555555555555',
+    inviteCode: 'DIARY-OPEN1234',
+    activateDuoImmediately: false,
+  });
+
+  assert.equal(isSharedDuo(waitingForPartner), false);
+  assert.equal(waitingForPartner.members.length, 1);
+  assert.equal(getMemberNickname(waitingForPartner, 'owner'), 'Anh');
+  assert.equal(waitingForPartner.pendingInvite?.inviteCode, 'DIARY-OPEN1234');
+  assert.equal(waitingForPartner.pendingInvite?.inviteeEmail, OPEN_INVITE_EMAIL);
+  assert.equal(isOpenInviteEmail(waitingForPartner.pendingInvite?.inviteeEmail), true);
+  assert.equal(isOpenInviteEmail('her@gmail.com'), false);
 });

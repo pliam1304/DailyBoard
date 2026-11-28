@@ -26,7 +26,7 @@
 
 1. **Trên iPhone:** Mở link Vercel trong **Safari** → bấm nút **Chia sẻ (Share)** → **Thêm vào Màn hình chính (Add to Home Screen)**.
 2. Mở app từ màn hình chính → bấm biểu tượng **⚙️ (Cài đặt)** → đăng ký tài khoản bằng email của bạn → bật **Thông báo nhắc nhở**.
-3. Bấm nút **Mời người thứ 2** trên thanh tiêu đề → nhập email của người ấy → gửi đường link mời (`/?invite=CATY-...`) cho người ấy đăng nhập bằng đúng email đó. Từ lúc đó cả hai dùng chung 1 bảng và đồng bộ ảnh Polaroid, ghi chú, nhắc nhở, tài chính & nhạc lofi theo thời gian thực!
+3. Bấm nút **Mời bạn** trên thanh tiêu đề → bấm **Tạo link mời** (có thể để trống email để tạo link mở nhanh, hoặc điền email cố định) → gửi đường link mời (`/?invite=DIARY-...`) hoặc mã rời cho người thứ 2. Khi người thứ 2 mở link và đăng nhập hoặc tạo tài khoản mới (hoặc dán mã vào mục *Tham gia bảng của người khác*), cả hai vào thẳng bảng chung và đồng bộ ảnh Polaroid, ghi chú, nhắc nhở, tài chính & nhạc Lofi theo thời gian thực!
 
 ---
 

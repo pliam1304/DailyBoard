@@ -51,16 +51,21 @@ import {
 } from '@/lib/search';
 import { enqueueOutboxOp, type OutboxOp } from '@/lib/outbox';
 import {
+  buildInviteUrl,
   createUuid,
   DEFAULT_BOARD_TITLE,
   DEFAULT_OWNER_NICKNAME,
+  extractInviteCodeFromInput,
   getMemberHeart,
   getMemberNickname,
   HEART_BADGE_META,
   inviteSecondPerson,
   isSharedDuo,
+  loadPendingInviteCode,
   renameMember,
   revertToSoloBoard,
+  savePendingInviteCode,
+  shouldAutoJoinPendingInvite,
 } from '@/lib/sharing';
 import {
   checkRateLimit,
@@ -93,11 +98,14 @@ import {
   fetchPendingInvitesForMe,
   flushOutboxToSupabase,
   getSupabaseClient,
+  previewCloudInvitation,
   pullStoreFromSupabase,
   pushStoreToSupabase,
   removePartnerInCloud,
+  revokeCloudInvitation,
   subscribeBoardRealtime,
   syncMemberNicknamesToSupabase,
+  type InvitationPreview,
   type OnlineMemberPresence,
 } from '@/lib/supabaseSync';
 import { AuthScreen, type SignupPayload } from '@/components/auth/AuthScreen';
@@ -256,6 +264,9 @@ export function CatyBoardApp() {
   const [syncStatus, setSyncStatus] = useState<string>('Đã đồng bộ ✓');
   const [incomingInvites, setIncomingInvites] = useState<BoardInvitation[]>([]);
   const [urlInviteCode, setUrlInviteCode] = useState<string>('');
+  const [invitePreview, setInvitePreview] = useState<InvitationPreview | null>(null);
+  const [inviteBannerError, setInviteBannerError] = useState<string>('');
+  const [inviteJoinBusy, setInviteJoinBusy] = useState<boolean>(false);
   const [onlineMembers, setOnlineMembers] = useState<OnlineMemberPresence[]>([]);
   const [heartToast, setHeartToast] = useState<string | null>(null);
   const [undoToast, setUndoToast] = useState<
@@ -273,6 +284,7 @@ export function CatyBoardApp() {
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
   const notifiedRemindersRef = useRef<Set<string>>(new Set());
   const hydratedUserIdRef = useRef<string | null>(null);
+  const inviteJoinInFlightRef = useRef<boolean>(false);
   const rememberLoginRef = useRef<boolean>(true);
   const manualThemeToggledRef = useRef<boolean>(false);
   const pendingSignupMetaRef = useRef<{
@@ -281,6 +293,22 @@ export function CatyBoardApp() {
   } | null>(null);
 
   const activeAccountEmail = cloudUser?.email?.toLowerCase() || localUserEmail;
+
+  const clearPendingInviteState = useCallback(() => {
+    setUrlInviteCode('');
+    setInvitePreview(null);
+    setInviteBannerError('');
+    savePendingInviteCode(null);
+    if (typeof window !== 'undefined' && window.location.search.includes('invite=')) {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('invite');
+      window.history.replaceState(
+        null,
+        '',
+        `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`
+      );
+    }
+  }, []);
 
   const applyLoadedStore = useCallback(
     (loaded: CatyStoreData, emailKey: string | null) => {
@@ -306,7 +334,14 @@ export function CatyBoardApp() {
   );
 
   const hydrateCloudUserBoard = useCallback(
-    async (user: User, customInitialMeta?: { boardTitle?: string; nickname?: string }) => {
+    async (
+      user: User,
+      customInitialMeta?: {
+        boardTitle?: string;
+        nickname?: string;
+        joinInviteCode?: string;
+      }
+    ) => {
       const client = getSupabaseClient(cloudConfig);
       if (!client) return;
 
@@ -338,12 +373,56 @@ export function CatyBoardApp() {
       });
       applyLoadedStore(localBase, emailKey);
 
+      const autoJoinCode = extractInviteCodeFromInput(
+        customInitialMeta?.joinInviteCode ||
+          (shouldAutoJoinPendingInvite() ? loadPendingInviteCode() : '')
+      );
+
       try {
         const pending = await fetchPendingInvitesForMe(client);
         setIncomingInvites(pending);
 
-        const boardId =
-          localBase.sharing.boardId || (await ensureCloudBoard(client, localBase));
+        if (autoJoinCode && !inviteJoinInFlightRef.current) {
+          inviteJoinInFlightRef.current = true;
+          try {
+            const joinedBoardId = await acceptCloudInvitation(
+              client,
+              autoJoinCode,
+              initialNickname
+            );
+            clearPendingInviteState();
+            const pulledShared = await pullStoreFromSupabase(
+              client,
+              user,
+              joinedBoardId,
+              localBase
+            );
+            applyLoadedStore(pulledShared, emailKey);
+            setIncomingInvites([]);
+            setSyncStatus('Đã vào bảng chung 2 người ✓');
+            setHeartToast('Đã kết nối vào bảng chung 2 người!');
+            setTimeout(() => setHeartToast(null), 3200);
+            return;
+          } catch (joinErr) {
+            const msg =
+              joinErr instanceof Error
+                ? joinErr.message
+                : 'Không thể tham gia bảng chung.';
+            savePendingInviteCode(autoJoinCode, { autoJoin: false });
+            setUrlInviteCode(autoJoinCode);
+            setInviteBannerError(msg);
+          } finally {
+            inviteJoinInFlightRef.current = false;
+          }
+        }
+
+        let boardId = localBase.sharing.boardId || '';
+        try {
+          boardId = await ensureCloudBoard(client, localBase);
+        } catch (ensureErr) {
+          if (!boardId) throw ensureErr;
+        }
+
         const baseWithBoardId: CatyStoreData = {
           ...localBase,
           sharing: {
@@ -353,12 +432,14 @@ export function CatyBoardApp() {
         };
         applyLoadedStore(baseWithBoardId, emailKey);
 
-        await flushOutboxToSupabase(
-          client,
-          user,
-          boardId,
-          baseWithBoardId.sharing.activeRole
-        );
+        if (!localBase.sharing.boardId || localBase.sharing.boardId === boardId) {
+          await flushOutboxToSupabase(
+            client,
+            user,
+            boardId,
+            baseWithBoardId.sharing.activeRole
+          );
+        }
         const pulled = await pullStoreFromSupabase(
           client,
           user,
@@ -373,18 +454,42 @@ export function CatyBoardApp() {
         pendingSignupMetaRef.current = null;
       }
     },
-    [cloudConfig, applyLoadedStore]
+    [cloudConfig, applyLoadedStore, clearPendingInviteState]
   );
 
   // Boot: register Service Worker, check ?invite=CODE, and restore persistent login session
   useEffect(() => {
     registerServiceWorker();
+    let detectedInvite = '';
     if (typeof window !== 'undefined') {
-      const code = new URLSearchParams(window.location.search).get('invite');
-      if (code) setUrlInviteCode(code.trim());
+      const rawParam = new URLSearchParams(window.location.search).get('invite');
+      if (rawParam) {
+        detectedInvite = extractInviteCodeFromInput(rawParam);
+        if (detectedInvite) {
+          savePendingInviteCode(detectedInvite);
+        }
+      } else {
+        detectedInvite = loadPendingInviteCode();
+      }
+      if (detectedInvite) {
+        setUrlInviteCode(detectedInvite);
+      }
     }
 
     let cancelled = false;
+
+    const bootClient = getSupabaseClient(cloudConfig);
+    if (detectedInvite && bootClient) {
+      void previewCloudInvitation(bootClient, detectedInvite)
+        .then((preview) => {
+          if (!cancelled && preview) {
+            setInvitePreview(preview);
+          }
+        })
+        .catch(() => {
+          // preview_board_invitation RPC is optional if not yet applied
+        });
+    }
 
     void (async () => {
       // 1. Immediately restore remembered personal session from local storage / IndexedDB
@@ -701,6 +806,13 @@ export function CatyBoardApp() {
     remember = true
   ) => {
     rememberLoginRef.current = remember;
+    const activeInvite = extractInviteCodeFromInput(
+      urlInviteCode || loadPendingInviteCode()
+    );
+    if (activeInvite) {
+      savePendingInviteCode(activeInvite, { autoJoin: true });
+    }
+
     const client = getSupabaseClient(cloudConfig);
     if (client) {
       const res = await client.auth.signInWithPassword({ email, password });
@@ -723,26 +835,11 @@ export function CatyBoardApp() {
         };
         saveLocalAccounts(accounts);
 
-        if (urlInviteCode) {
-          try {
-            const joinedId = await acceptCloudInvitation(client, urlInviteCode);
-            const base = createFreshAccountStore({ email });
-            const pulled = await pullStoreFromSupabase(
-              client,
-              res.data.user,
-              joinedId,
-              base
-            );
-            setCloudUser(res.data.user);
-            setLocalUserEmail(email);
-            applyLoadedStore(pulled, email);
-            setUrlInviteCode('');
-            return;
-          } catch {
-            // Fall through to normal personal board load
-          }
+        if (hydratedUserIdRef.current !== res.data.user.id) {
+          await hydrateCloudUserBoard(res.data.user, {
+            joinInviteCode: activeInvite || undefined,
+          });
         }
-        await hydrateCloudUserBoard(res.data.user);
         return;
       }
 
@@ -762,7 +859,9 @@ export function CatyBoardApp() {
           },
         });
         if (!signUpRes.error && signUpRes.data.session && signUpRes.data.user) {
-          await hydrateCloudUserBoard(signUpRes.data.user);
+          await hydrateCloudUserBoard(signUpRes.data.user, {
+            joinInviteCode: activeInvite || undefined,
+          });
           return;
         }
       } else if (res.error && !loadLocalAccounts()[email]) {
@@ -801,10 +900,21 @@ export function CatyBoardApp() {
       nickname: payload.nickname || DEFAULT_OWNER_NICKNAME,
     };
 
+    const activeInvite = extractInviteCodeFromInput(
+      urlInviteCode || loadPendingInviteCode()
+    );
+    if (activeInvite) {
+      savePendingInviteCode(activeInvite, { autoJoin: true });
+    }
+
     const client = getSupabaseClient(cloudConfig);
     if (client) {
       const redirectOrigin =
-        typeof window !== 'undefined' ? window.location.origin : undefined;
+        typeof window !== 'undefined'
+          ? activeInvite
+            ? buildInviteUrl(window.location.origin, activeInvite)
+            : window.location.origin
+          : undefined;
       const res = await client.auth.signUp({
         email: payload.email,
         password: payload.password,
@@ -845,10 +955,13 @@ export function CatyBoardApp() {
       await saveStore(freshBoard, payload.email);
 
       if (res.data.session && res.data.user) {
-        await hydrateCloudUserBoard(res.data.user, {
-          boardTitle: payload.boardTitle || DEFAULT_BOARD_TITLE,
-          nickname: payload.nickname || DEFAULT_OWNER_NICKNAME,
-        });
+        if (hydratedUserIdRef.current !== res.data.user.id) {
+          await hydrateCloudUserBoard(res.data.user, {
+            boardTitle: payload.boardTitle || DEFAULT_BOARD_TITLE,
+            nickname: payload.nickname || DEFAULT_OWNER_NICKNAME,
+            joinInviteCode: activeInvite || undefined,
+          });
+        }
         return { autoLoggedIn: true };
       }
 
@@ -880,6 +993,13 @@ export function CatyBoardApp() {
     otpCode: string,
     passwordFallback?: string
   ) => {
+    const activeInvite = extractInviteCodeFromInput(
+      urlInviteCode || loadPendingInviteCode()
+    );
+    if (activeInvite) {
+      savePendingInviteCode(activeInvite, { autoJoin: true });
+    }
+
     const client = getSupabaseClient(cloudConfig);
     if (client) {
       let verifiedUser: User | null = null;
@@ -946,26 +1066,13 @@ export function CatyBoardApp() {
       });
       await saveStore(freshBoard, email);
 
-      if (urlInviteCode) {
-        try {
-          const joinedId = await acceptCloudInvitation(client, urlInviteCode);
-          const pulled = await pullStoreFromSupabase(
-            client,
-            verifiedUser,
-            joinedId,
-            freshBoard
-          );
-          setCloudUser(verifiedUser);
-          setLocalUserEmail(email);
-          applyLoadedStore(pulled, email);
-          setUrlInviteCode('');
-          return;
-        } catch {
-          // Proceed to create own fresh board
-        }
+      if (hydratedUserIdRef.current !== verifiedUser.id) {
+        await hydrateCloudUserBoard(verifiedUser, {
+          boardTitle: meta.boardTitle,
+          nickname: meta.nickname,
+          joinInviteCode: activeInvite || undefined,
+        });
       }
-
-      await hydrateCloudUserBoard(verifiedUser, meta);
       return;
     }
 
@@ -1057,6 +1164,25 @@ export function CatyBoardApp() {
     const client = getSupabaseClient(cloudConfig);
     if (client) await client.auth.signOut();
     hydratedUserIdRef.current = null;
+    clearPendingInviteState();
+    setCloudUser(null);
+    setLocalUserEmail(null);
+    setActiveLocalUserEmail(null);
+    setStore(null);
+    setOnlineMembers([]);
+    setIncomingInvites([]);
+  };
+
+  const handleSwitchAccountForInvite = async (inviteCodeToKeep: string) => {
+    const cleanCode = extractInviteCodeFromInput(inviteCodeToKeep);
+    const client = getSupabaseClient(cloudConfig);
+    if (client) await client.auth.signOut();
+    hydratedUserIdRef.current = null;
+    setInviteBannerError('');
+    if (cleanCode) {
+      savePendingInviteCode(cleanCode, { autoJoin: true });
+      setUrlInviteCode(cleanCode);
+    }
     setCloudUser(null);
     setLocalUserEmail(null);
     setActiveLocalUserEmail(null);
@@ -1080,6 +1206,8 @@ export function CatyBoardApp() {
     return (
       <AuthScreen
         inviteCode={urlInviteCode || undefined}
+        invitePreview={invitePreview}
+        onDismissInvite={clearPendingInviteState}
         onLogin={handleUserLogin}
         onSignupRequestOtp={handleSignupRequestOtp}
         onVerifyOtp={handleVerifyOtp}
@@ -1558,8 +1686,26 @@ export function CatyBoardApp() {
   ) => {
     const client = getSupabaseClient(cloudConfig);
     if (client && cloudUser) {
+      const hadBoardId = Boolean(store.sharing.boardId);
       const boardId =
         store.sharing.boardId || (await ensureCloudBoard(client, store));
+      const nextStoreForSync: CatyStoreData = {
+        ...store,
+        sharing: renameMember(
+          { ...store.sharing, boardId },
+          'owner',
+          ownerNickname
+        ),
+      };
+      await flushOutboxToSupabase(
+        client,
+        cloudUser,
+        boardId,
+        store.sharing.activeRole
+      );
+      if (!hadBoardId) {
+        await pushStoreToSupabase(client, cloudUser, boardId, nextStoreForSync);
+      }
       const inv = await createCloudInvitation(
         client,
         cloudUser,
@@ -1575,7 +1721,7 @@ export function CatyBoardApp() {
           partnerNickname,
           boardId,
           inviteCode: inv.inviteCode,
-          activateDuoImmediately: true,
+          activateDuoImmediately: false,
         }),
       }));
       return;
@@ -1591,30 +1737,87 @@ export function CatyBoardApp() {
     }));
   };
 
-  const handleAcceptInvite = async (inviteCode: string) => {
+  const handleRevokeInvite = async () => {
     const client = getSupabaseClient(cloudConfig);
-    if (!client || !cloudUser) return;
-    setSyncStatus('Đang tham gia bảng chung...');
-    const joinedBoardId = await acceptCloudInvitation(client, inviteCode);
-    const pulled = await pullStoreFromSupabase(
-      client,
-      cloudUser,
-      joinedBoardId,
-      store
-    );
-    applyLoadedStore(pulled, activeAccountEmail);
-    setIncomingInvites([]);
-    setUrlInviteCode('');
-    if (typeof window !== 'undefined' && window.location.search.includes('invite=')) {
-      window.history.replaceState(null, '', window.location.pathname);
+    if (client && cloudUser && store.sharing.boardId) {
+      await revokeCloudInvitation(client, store.sharing.boardId);
     }
-    setSyncStatus('Đã vào bảng chung 2 người ✓');
+    updateStore((prev) => ({
+      ...prev,
+      sharing: {
+        ...prev.sharing,
+        pendingInvite: null,
+      },
+    }));
+  };
+
+  const joinSharedBoardByCode = async (rawInviteInput: string) => {
+    const client = getSupabaseClient(cloudConfig);
+    if (!client || !cloudUser) {
+      throw new Error(
+        'Bạn cần đăng nhập tài khoản đồng bộ trực tuyến trước khi tham gia bảng chung.'
+      );
+    }
+    setInviteBannerError('');
+    setSyncStatus('Đang tham gia bảng chung...');
+    try {
+      const joinedBoardId = await acceptCloudInvitation(
+        client,
+        rawInviteInput,
+        myNickname
+      );
+      const pulled = await pullStoreFromSupabase(
+        client,
+        cloudUser,
+        joinedBoardId,
+        store
+      );
+      applyLoadedStore(pulled, activeAccountEmail);
+      setIncomingInvites([]);
+      clearPendingInviteState();
+      setSyncStatus('Đã vào bảng chung 2 người ✓');
+      setHeartToast('Đã kết nối vào bảng chung 2 người!');
+      setTimeout(() => setHeartToast(null), 3200);
+    } catch (err) {
+      setSyncStatus('Đã đồng bộ ✓');
+      throw err;
+    }
+  };
+
+  const handleBannerAcceptInvite = async (inviteCode: string) => {
+    setInviteJoinBusy(true);
+    setInviteBannerError('');
+    try {
+      await joinSharedBoardByCode(inviteCode);
+    } catch (err) {
+      setInviteBannerError(
+        err instanceof Error
+          ? err.message
+          : 'Không thể tham gia bảng chung. Kiểm tra lại đường link nhé!'
+      );
+    } finally {
+      setInviteJoinBusy(false);
+    }
   };
 
   const handleRevertToSolo = async () => {
+    const wasPartner = store.sharing.activeRole === 'partner';
     const client = getSupabaseClient(cloudConfig);
     if (client && cloudUser && store.sharing.boardId) {
       await removePartnerInCloud(client, store.sharing.boardId);
+    }
+    if (wasPartner && client && cloudUser && activeAccountEmail) {
+      const soloBase = createFreshAccountStore({
+        email: activeAccountEmail,
+        boardTitle: DEFAULT_BOARD_TITLE,
+        nickname: myNickname || DEFAULT_OWNER_NICKNAME,
+      });
+      await saveStore(soloBase, activeAccountEmail);
+      await hydrateCloudUserBoard(cloudUser, {
+        boardTitle: DEFAULT_BOARD_TITLE,
+        nickname: myNickname || DEFAULT_OWNER_NICKNAME,
+      });
+      return;
     }
     updateStore((prev) => ({
       ...prev,
@@ -1662,6 +1865,19 @@ export function CatyBoardApp() {
   const surfaceClass =
     SURFACE_CLASS_BY_TEXTURE[store.profile.boardTexture || 'cork'];
 
+  const hasOwnPendingInvite =
+    !isDuo && store.sharing.pendingInvite?.status === 'pending';
+  const ownPendingInviteCode = hasOwnPendingInvite
+    ? extractInviteCodeFromInput(store.sharing.pendingInvite?.inviteCode || '')
+    : '';
+  const cleanUrlInviteCode = extractInviteCodeFromInput(urlInviteCode);
+  const isOwnInviteLink = Boolean(
+    cleanUrlInviteCode &&
+      ownPendingInviteCode &&
+      cleanUrlInviteCode === ownPendingInviteCode
+  );
+  const bannerInviteCode = incomingInvites[0]?.inviteCode || cleanUrlInviteCode;
+
   const navTabs: { id: BoardTab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Hôm nay', icon: <LayoutGrid className="h-4 w-4" /> },
     { id: 'memories', label: 'Kỷ niệm', icon: <CalendarDays className="h-4 w-4" /> },
@@ -1707,28 +1923,91 @@ export function CatyBoardApp() {
       )}
 
       <div className="mx-auto max-w-7xl px-3 pt-3 sm:px-6 sm:pt-5">
-        {/* Incoming Email Invitation Banner */}
-        {(incomingInvites.length > 0 || (urlInviteCode && !isDuo)) && (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border-2 border-[#94c7f0] bg-[#eef7fe] px-4 py-3 text-xs text-[#194063] shadow-md">
-            <div>
-              <span className="font-extrabold">
-                💌{' '}
-                {incomingInvites[0]
-                  ? `${incomingInvites[0].inviterNickname} mời bạn dùng chung bảng "${incomingInvites[0].boardTitle || DEFAULT_BOARD_TITLE}"!`
-                  : `Lời mời tham gia bảng chung (${urlInviteCode})`}
-              </span>
+        {/* Own Invite Link Notice (when Owner opens their own invite link in a browser tab) */}
+        {isOwnInviteLink && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border-2 border-[#dfc088] bg-[#fff8e6] px-4 py-3 text-xs text-[#593d12] shadow-md">
+            <div className="space-y-0.5">
+              <div className="font-extrabold">
+                Đây là link mời của bảng bạn đang làm chủ ({cleanUrlInviteCode})
+              </div>
+              <p className="text-[11px] opacity-85">
+                Gửi link này cho người thứ 2 mở trên thiết bị của họ — hoặc đổi sang tài khoản thứ 2 nếu bạn muốn thử ngay trên trình duyệt này.
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={() =>
-                void handleAcceptInvite(
-                  incomingInvites[0]?.inviteCode || urlInviteCode
-                )
-              }
-              className="rounded-xl bg-[#3a75a8] px-3.5 py-1.5 font-extrabold text-white shadow-xs hover:bg-[#2f6390]"
-            >
-              Chấp nhận
-            </button>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleSwitchAccountForInvite(cleanUrlInviteCode)}
+                className="rounded-xl bg-[#3a75a8] px-3 py-1.5 font-extrabold text-white shadow-2xs hover:bg-[#2f6390]"
+              >
+                Đổi tài khoản để tham gia
+              </button>
+              <button
+                type="button"
+                onClick={clearPendingInviteState}
+                aria-label="Đóng thông báo"
+                className="rounded-xl bg-black/5 p-1.5 hover:bg-black/10"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Incoming Invitation Banner (Link or Email Invite for Person 2) */}
+        {!isOwnInviteLink && (incomingInvites.length > 0 || (cleanUrlInviteCode && !isDuo)) && (
+          <div className="mb-3 space-y-2 rounded-2xl border-2 border-[#94c7f0] bg-[#eef7fe] px-4 py-3 text-xs text-[#194063] shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <div className="space-y-0.5">
+                <div className="font-extrabold">
+                  💌{' '}
+                  {incomingInvites[0]
+                    ? `${incomingInvites[0].inviterNickname} mời bạn dùng chung bảng "${incomingInvites[0].boardTitle || DEFAULT_BOARD_TITLE}"`
+                    : invitePreview
+                      ? `${invitePreview.inviterNickname} mời bạn dùng chung bảng "${invitePreview.boardTitle || DEFAULT_BOARD_TITLE}"`
+                      : `Lời mời tham gia bảng chung (${bannerInviteCode})`}
+                </div>
+                <div className="text-[11px] text-[#2c5478]">
+                  Đang đăng nhập với <strong>{activeAccountEmail}</strong>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={inviteJoinBusy}
+                  onClick={() => void handleBannerAcceptInvite(bannerInviteCode)}
+                  className="rounded-xl bg-[#3d7c57] px-3.5 py-1.5 font-extrabold text-white shadow-xs hover:bg-[#316647] disabled:opacity-55"
+                >
+                  {inviteJoinBusy ? 'Đang vào...' : 'Tham gia bảng chung'}
+                </button>
+                <button
+                  type="button"
+                  disabled={inviteJoinBusy}
+                  onClick={() => void handleSwitchAccountForInvite(bannerInviteCode)}
+                  className="rounded-xl border border-[#bcd8ef] bg-white px-3 py-1.5 font-bold text-[#1d456b] hover:bg-[#f5faff]"
+                >
+                  Đổi tài khoản khác
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIncomingInvites([]);
+                    clearPendingInviteState();
+                  }}
+                  aria-label="Đóng lời mời"
+                  className="rounded-xl p-1.5 text-[#2c5478] hover:bg-black/5"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {inviteBannerError && (
+              <p className="rounded-xl bg-[#fde8ea] px-3 py-2 text-xs font-bold text-[#a6343e]">
+                {inviteBannerError}
+              </p>
+            )}
           </div>
         )}
 
@@ -1758,9 +2037,11 @@ export function CatyBoardApp() {
                 className={`inline-flex items-center gap-1.5 rounded-2xl border px-3 py-1.5 text-xs font-extrabold shadow-xs transition ${
                   isDuo
                     ? 'border-transparent bg-[#3d7c57] text-white hover:bg-[#316647]'
-                    : isNight
-                      ? 'border-[#6b4f3a] bg-[#2c2119] text-[#f4e8d6] hover:bg-[#3a2b21]'
-                      : 'border-[#c69d70] bg-[#fbf5e9] text-[#382619] hover:bg-[#f2e6d3]'
+                    : hasOwnPendingInvite
+                      ? 'border-[#8fc2ea] bg-[#eef7fe] text-[#194063] hover:bg-[#dfeffc]'
+                      : isNight
+                        ? 'border-[#6b4f3a] bg-[#2c2119] text-[#f4e8d6] hover:bg-[#3a2b21]'
+                        : 'border-[#c69d70] bg-[#fbf5e9] text-[#382619] hover:bg-[#f2e6d3]'
                 }`}
               >
                 {isDuo ? (
@@ -1776,6 +2057,12 @@ export function CatyBoardApp() {
                         className="h-2 w-2 rounded-full bg-[#8cf0a8]"
                       />
                     )}
+                  </>
+                ) : hasOwnPendingInvite ? (
+                  <>
+                    <UserPlus className="h-3.5 w-3.5 text-[#2e6da4]" />
+                    <span>Link mời đang mở</span>
+                    <span className="h-2 w-2 rounded-full bg-[#3a75a8]" />
                   </>
                 ) : (
                   <>
@@ -2522,6 +2809,8 @@ export function CatyBoardApp() {
           isCloudSignedIn={Boolean(cloudUser)}
           onlineCount={onlineMembers.length}
           onInviteByEmail={handleInviteByEmail}
+          onJoinByCode={joinSharedBoardByCode}
+          onRevokeInvite={handleRevokeInvite}
           onRenameMember={(role: MemberRole, nickname: string, heartColor: HeartColor) => {
             const nextSharing = renameMember(
               store.sharing,

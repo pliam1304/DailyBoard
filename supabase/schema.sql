@@ -370,7 +370,39 @@ as $$
   order by bi.created_at desc;
 $$;
 
--- RPC: Accept an email invitation (joins the shared 2-person board)
+-- RPC: Preview an invitation by code (safe metadata for login/signup invite screen)
+create or replace function public.preview_board_invitation(p_invite_code text)
+returns table (
+  board_id uuid,
+  board_title text,
+  inviter_nickname text,
+  invitee_nickname text,
+  is_open_link boolean,
+  invitee_email_hint text
+)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select
+    bi.board_id,
+    b.board_title,
+    bi.inviter_nickname,
+    bi.invitee_nickname,
+    (lower(bi.invitee_email) = 'open@invite.local') as is_open_link,
+    case
+      when lower(bi.invitee_email) = 'open@invite.local' then ''
+      else bi.invitee_email
+    end as invitee_email_hint
+  from public.board_invitations bi
+  join public.boards b on b.id = bi.board_id
+  where upper(trim(bi.invite_code)) = upper(trim(p_invite_code))
+    and bi.status = 'pending'
+  limit 1;
+$$;
+
+-- RPC: Accept an invitation link or code (supports both Open Link invites and Email-specific invites)
 create or replace function public.accept_board_invitation(p_invite_code text)
 returns uuid
 language plpgsql
@@ -380,35 +412,56 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_clean_code text := upper(trim(coalesce(p_invite_code, '')));
   v_inv public.board_invitations%rowtype;
   v_member_count int;
 begin
   if v_uid is null then
-    raise exception 'Bạn cần đăng nhập trước khi chấp nhận lời mời.';
+    raise exception 'Bạn cần đăng nhập trước khi tham gia bảng chung.';
   end if;
 
   select * into v_inv
   from public.board_invitations
-  where invite_code = p_invite_code
-    and status = 'pending'
+  where upper(trim(invite_code)) = v_clean_code
+  order by case when status = 'pending' then 0 else 1 end, created_at desc
   limit 1;
 
   if not found then
-    raise exception 'Lời mời không tồn tại hoặc đã hết hạn.';
+    raise exception 'Mã mời không tồn tại. Hãy kiểm tra lại đường link nhé.';
   end if;
 
-  if lower(v_inv.invitee_email) <> v_email then
-    raise exception 'Lời mời này được gửi cho email %, hãy đăng nhập đúng email đó nhé.', v_inv.invitee_email;
+  -- If this user is already a member of this board, return the board idempotently
+  if exists (
+    select 1
+    from public.board_members
+    where board_id = v_inv.board_id
+      and user_id = v_uid
+  ) then
+    if v_inv.inviter_user_id = v_uid then
+      raise exception 'Đây là link mời của chính bảng bạn đang làm chủ — hãy gửi link này cho người thứ 2 mở trên tài khoản của họ nhé.';
+    end if;
+    return v_inv.board_id;
+  end if;
+
+  if v_inv.status <> 'pending' then
+    raise exception 'Lời mời này đã được sử dụng hoặc đã thu hồi.';
+  end if;
+
+  if v_inv.inviter_user_id = v_uid then
+    raise exception 'Bạn không thể tự chấp nhận lời mời của chính mình — hãy mở link bằng tài khoản của người thứ 2 nhé.';
+  end if;
+
+  if lower(v_inv.invitee_email) <> 'open@invite.local'
+     and lower(v_inv.invitee_email) <> v_email then
+    raise exception 'Lời mời này được khóa riêng cho email %, vui lòng đăng nhập đúng email đó.', v_inv.invitee_email;
   end if;
 
   select count(*) into v_member_count
   from public.board_members
   where board_id = v_inv.board_id;
 
-  if v_member_count >= 2 and not exists (
-    select 1 from public.board_members where board_id = v_inv.board_id and user_id = v_uid
-  ) then
-    raise exception 'Bảng này đã đủ 2 người rồi.';
+  if v_member_count >= 2 then
+    raise exception 'Bảng chung này đã đủ 2 người rồi.';
   end if;
 
   insert into public.board_members (board_id, user_id, role, email, nickname, heart_color)
@@ -471,6 +524,7 @@ grant execute on function public.is_board_owner(uuid) to authenticated;
 grant execute on function public.is_dev_admin() to authenticated;
 grant execute on function public.ensure_personal_board(text, text) to authenticated;
 grant execute on function public.get_my_pending_invitations() to authenticated;
+grant execute on function public.preview_board_invitation(text) to anon, authenticated;
 grant execute on function public.accept_board_invitation(text) to authenticated;
 
 -- Boards policies

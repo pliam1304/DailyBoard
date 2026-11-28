@@ -8,8 +8,10 @@ import {
   DEFAULT_BOARD_TITLE,
   DEFAULT_OWNER_NICKNAME,
   DEFAULT_PARTNER_NICKNAME,
+  extractInviteCodeFromInput,
   generateInviteCode,
   isUuid,
+  OPEN_INVITE_EMAIL,
 } from '@/lib/sharing';
 import {
   isAllowedAudioDataUrl,
@@ -127,14 +129,17 @@ export async function ensureCloudBoard(
     throw error || new Error('Không thể khởi tạo bảng đồng bộ.');
   }
 
-  const existingMember = await client
+  const existingMembers = await client
     .from('board_members')
-    .select('board_id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle();
-  if (existingMember.data?.board_id) {
-    return String(existingMember.data.board_id);
+    .select('board_id, role')
+    .eq('user_id', user.id);
+  if (Array.isArray(existingMembers.data) && existingMembers.data.length > 0) {
+    const preferred =
+      existingMembers.data.find((m) => m.role === 'partner') ||
+      existingMembers.data[0];
+    if (preferred?.board_id) {
+      return String(preferred.board_id);
+    }
   }
 
   const existingBoard = await client
@@ -190,6 +195,36 @@ export async function fetchPendingInvitesForMe(
   }));
 }
 
+export interface InvitationPreview {
+  boardId: string;
+  boardTitle: string;
+  inviterNickname: string;
+  inviteeNickname: string;
+  isOpenLink: boolean;
+  inviteeEmailHint: string;
+}
+
+export async function previewCloudInvitation(
+  client: SupabaseClient,
+  rawInviteCode: string
+): Promise<InvitationPreview | null> {
+  const cleanCode = extractInviteCodeFromInput(rawInviteCode);
+  if (!cleanCode) return null;
+  const { data, error } = await client.rpc('preview_board_invitation', {
+    p_invite_code: cleanCode,
+  });
+  if (error || !Array.isArray(data) || data.length === 0) return null;
+  const row = data[0];
+  return {
+    boardId: String(row.board_id || ''),
+    boardTitle: String(row.board_title || DEFAULT_BOARD_TITLE),
+    inviterNickname: String(row.inviter_nickname || DEFAULT_OWNER_NICKNAME),
+    inviteeNickname: String(row.invitee_nickname || DEFAULT_PARTNER_NICKNAME),
+    isOpenLink: Boolean(row.is_open_link),
+    inviteeEmailHint: String(row.invitee_email_hint || ''),
+  };
+}
+
 export async function createCloudInvitation(
   client: SupabaseClient,
   user: User,
@@ -198,8 +233,16 @@ export async function createCloudInvitation(
   inviterNickname: string,
   inviteeNickname: string
 ): Promise<BoardInvitation> {
-  const cleanEmail = inviteeEmail.trim().toLowerCase();
+  const cleanEmail = inviteeEmail.trim().toLowerCase() || OPEN_INVITE_EMAIL;
   const inviteCode = generateInviteCode();
+  const safeOwnerNick = inviterNickname.trim() || DEFAULT_OWNER_NICKNAME;
+  const safePartnerNick = inviteeNickname.trim() || DEFAULT_PARTNER_NICKNAME;
+
+  await client
+    .from('board_members')
+    .update({ nickname: safeOwnerNick })
+    .eq('board_id', boardId)
+    .eq('user_id', user.id);
 
   await client
     .from('board_invitations')
@@ -212,9 +255,9 @@ export async function createCloudInvitation(
     .insert({
       board_id: boardId,
       inviter_user_id: user.id,
-      inviter_nickname: inviterNickname || DEFAULT_OWNER_NICKNAME,
+      inviter_nickname: safeOwnerNick,
       invitee_email: cleanEmail,
-      invitee_nickname: inviteeNickname || DEFAULT_PARTNER_NICKNAME,
+      invitee_nickname: safePartnerNick,
       invite_code: inviteCode,
       status: 'pending',
     })
@@ -222,7 +265,7 @@ export async function createCloudInvitation(
     .single();
 
   if (error || !data) {
-    throw error || new Error('Không thể tạo lời mời qua email.');
+    throw new Error(error?.message || 'Không thể tạo đường link mời.');
   }
 
   return {
@@ -237,17 +280,55 @@ export async function createCloudInvitation(
   };
 }
 
+export async function revokeCloudInvitation(
+  client: SupabaseClient,
+  boardId: string
+): Promise<void> {
+  await client
+    .from('board_invitations')
+    .update({ status: 'revoked' })
+    .eq('board_id', boardId)
+    .eq('status', 'pending');
+}
+
 export async function acceptCloudInvitation(
   client: SupabaseClient,
-  inviteCode: string
+  inviteCode: string,
+  preferredNickname?: string
 ): Promise<string> {
+  const cleanCode = extractInviteCodeFromInput(inviteCode);
+  if (!cleanCode) {
+    throw new Error('Mã mời chưa hợp lệ.');
+  }
+
   const { data, error } = await client.rpc('accept_board_invitation', {
-    p_invite_code: inviteCode.trim(),
+    p_invite_code: cleanCode,
   });
   if (error || !data) {
-    throw error || new Error('Không thể chấp nhận lời mời.');
+    const rawMsg = error?.message || '';
+    if (rawMsg.includes('open@invite.local')) {
+      throw new Error(
+        'Database Supabase cần chạy bản cập nhật hàm accept_board_invitation để dùng Link mời mở (hoặc người mời có thể điền đúng email của bạn khi tạo link).'
+      );
+    }
+    throw new Error(rawMsg || 'Không thể tham gia bảng chung. Kiểm tra lại mã mời nhé!');
   }
-  return String(data);
+
+  const joinedBoardId = String(data);
+
+  const cleanNick = sanitizeText(preferredNickname || '', 40);
+  if (cleanNick && cleanNick !== DEFAULT_OWNER_NICKNAME) {
+    const { data: authData } = await client.auth.getUser();
+    if (authData?.user?.id) {
+      await client
+        .from('board_members')
+        .update({ nickname: cleanNick })
+        .eq('board_id', joinedBoardId)
+        .eq('user_id', authData.user.id);
+    }
+  }
+
+  return joinedBoardId;
 }
 
 export async function removePartnerInCloud(
