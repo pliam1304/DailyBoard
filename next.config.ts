@@ -5,13 +5,13 @@ const isProd = process.env.NODE_ENV === 'production';
 const ContentSecurityPolicy = [
   "default-src 'self'",
   isProd
-    ? "script-src 'self' 'unsafe-inline'"
-    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    ? "script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "media-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://www.youtube.com https://api.spotify.com",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://www.youtube.com https://api.spotify.com https://vitals.vercel-insights.com",
   "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://open.spotify.com",
   "object-src 'none'",
   "base-uri 'self'",

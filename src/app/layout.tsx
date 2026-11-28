@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from 'next';
+import { Analytics } from '@vercel/analytics/next';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 
 const SITE_URL =
@@ -67,7 +69,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" style={{ colorScheme: 'only light' }}>
-      <body className="antialiased selection:bg-[#3a75a8]/25">{children}</body>
+      <body className="antialiased selection:bg-[#3a75a8]/25">
+        {children}
+        <Analytics />
+        <SpeedInsights />
+      </body>
     </html>
   );
 }
