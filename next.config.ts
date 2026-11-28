@@ -53,6 +53,11 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  serverExternalPackages: [
+    '@takumi-rs/core',
+    '@takumi-rs/image-response',
+    'takumi-js',
+  ],
   images: {
     unoptimized: true,
   },
